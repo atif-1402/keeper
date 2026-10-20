@@ -1,0 +1,68 @@
+name: release
+
+# Tag a version (git tag v0.1.1 && git push --tags) and CI builds a
+# standalone binary for every platform, then publishes a GitHub Release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.asset }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,    asset: keeper-linux-x86_64 }
+          - { os: ubuntu-24.04-arm, asset: keeper-linux-aarch64 }
+          - { os: windows-latest,   asset: keeper-windows-x86_64.exe }
+          - { os: macos-latest,     asset: keeper-macos-aarch64 }
+          - { os: macos-13,         asset: keeper-macos-x86_64 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build dependencies
+        run: pip install pyinstaller pypdf python-docx rich
+
+      - name: Build standalone binary
+        shell: bash
+        run: |
+          pyinstaller --onefile --name keeper --paths . \
+            --collect-submodules pypdf --collect-submodules docx \
+            packaging/entry.py
+
+      - name: Name the asset
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            cp dist/keeper.exe "dist/${{ matrix.asset }}"
+          else
+            cp dist/keeper "dist/${{ matrix.asset }}"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

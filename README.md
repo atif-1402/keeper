@@ -57,21 +57,45 @@ flowchart LR
 
 ## Install
 
-Requires Python 3.11+ and [Ollama](https://ollama.com) with an open-weight model:
+### Linux / macOS — one-liner
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/atif-1402/keeper/main/install.sh | bash
+```
+
+Downloads the standalone binary for your platform (x86_64 or aarch64, no Python needed) into `~/.local/bin`. No sudo. Re-run it anytime to update.
+
+### Windows
+
+Keeper is pure Python, so it runs on Windows today:
+
+```powershell
+pipx install git+https://github.com/atif-1402/keeper   # or:
+python -m pip install "git+https://github.com/atif-1402/keeper"
+```
+
+(Prebuilt `.exe` builds ship with every tagged release — grab `keeper-windows-x86_64.exe` from the [releases page](https://github.com/atif-1402/keeper/releases) if you'd rather not touch Python.)
+
+### Other methods
+
+```bash
+uv tool install "git+https://github.com/atif-1402/keeper"   # uv users
+git clone https://github.com/atif-1402/keeper && cd keeper
+uv sync && uv run keeper ~/Downloads                        # from source
+```
+
+### The model
+
+Keeper's AI verdicts run on a local [Ollama](https://ollama.com) model — nothing leaves your machine:
 
 ```bash
 ollama pull gemma3:1b     # ~800 MB, runs on 4 GB RAM
-
-git clone https://github.com/atif-1402/keeper
-cd keeper
-uv sync                    # or: pip install -e .
-uv run keeper ~/Downloads  # dry run
 ```
 
 No Ollama? Keeper still works — it falls back to the rule engine and tells you so:
 
 ```
-Ollama is not running — falling back to the rule engine for all groups.
+Ollama is not running — falling back to the rule engine.
 ```
 
 ## CLI
