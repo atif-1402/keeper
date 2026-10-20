@@ -43,3 +43,30 @@ def test_tidy_folder_is_fine(tmp_path, capsys):
     (tmp_path / "one.txt").write_text("nothing else here at all")
     assert main([str(tmp_path), "--no-model"]) == 0
     assert "No duplicate clusters" in capsys.readouterr().out
+
+
+def test_no_model_and_model_only_conflict(messy_dir, capsys):
+    assert main([str(messy_dir), "--no-model", "--model-only"]) == 2
+    assert "contradict" in capsys.readouterr().err
+
+
+def test_model_only_fails_cleanly_without_ollama(messy_dir, monkeypatch, capsys):
+    monkeypatch.setattr("keeper.cli.model_available", lambda *_a, **_k: False)
+    assert main([str(messy_dir), "--model-only"]) == 1
+    assert "Ollama is not running" in capsys.readouterr().err
+    # ...and nothing was moved.
+    assert "_keeper_quarantine" not in [p.name for p in messy_dir.iterdir()]
+
+
+def test_no_eta_flag_still_works(messy_dir):
+    assert main([str(messy_dir), "--no-model", "--no-eta"]) == 0
+
+
+def test_fmt_duration():
+    from keeper.cli import _fmt_duration
+
+    assert _fmt_duration(0) == "0s"
+    assert _fmt_duration(9) == "9s"
+    assert _fmt_duration(75) == "1m15s"
+    assert _fmt_duration(3600) == "1h00m"
+    assert _fmt_duration(3700) == "1h01m"

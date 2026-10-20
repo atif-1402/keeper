@@ -74,12 +74,16 @@ Ollama is not running — falling back to the rule engine for all groups.
 
 | Command | What it does |
 |---|---|
-| `keeper <folder>` | Scan, cluster, decide, print report. Moves nothing. |
+| `keeper <folder>` | Scan, cluster, decide, print report. Moves nothing. Uses the model when Ollama is up, rules otherwise. |
 | `keeper <folder> --apply` | Move losing copies into `_keeper_quarantine/` |
 | `keeper <folder> --restore` | Undo `--apply`, byte-for-byte |
 | `keeper <folder> --model gemma3:4b` | Use a different (bigger) open-weight model |
-| `keeper <folder> --no-model` | Skip the model, rule engine only |
+| `keeper <folder> --no-model` | Rule engine only — never call a model |
+| `keeper <folder> --model-only` | Model required — error out if Ollama is down instead of falling back |
+| `keeper <folder> --no-eta` | Hide the elapsed/remaining time in the spinner |
 | `keeper <folder> --report out.md` | Also write a Markdown report |
+
+While it works, the spinner shows a live clock and — once it has measured your machine's speed — a countdown: `asking gemma3:1b — index.html [3/9] · about 40s left`. A slow box honestly shows minutes; a fast one shows seconds. No fixed timings, just measured throughput.
 
 ## Why open innovation matters here
 
