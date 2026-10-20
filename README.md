@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/keeper-header.svg" alt="keeper — which copy do I keep?" width="700">
+  <img src="assets/keeper-header.svg" alt="keeper — which copy do I keep?" width="800">
 </p>
 
 <p align="center">
