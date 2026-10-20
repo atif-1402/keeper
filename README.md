@@ -22,12 +22,6 @@
   <a href="#why-open-innovation-matters-here">Why open weights</a>
 </p>
 
-```bash
-keeper ~/Downloads            # scan + verdicts, moves nothing
-keeper ~/Downloads --apply    # quarantine the losers
-keeper ~/Downloads --restore  # put everything back, byte-for-byte
-```
-
 ## Why this exists
 
 Duplicate finders tell you files are identical. Diff tools make you pick the two files to compare by hand. Neither one answers the question you actually have: **"I have five versions of the same document — which one do I keep?"**
