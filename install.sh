@@ -35,13 +35,13 @@ dest="$BIN_DIR/keeper"
 
 say "installing $asset -> $dest"
 mkdir -p "$BIN_DIR"
-if curl -fSL --retry 3 -o "$dest.tmp" "$url" 2>/dev/null; then
+if curl -fSL --retry 3 -o "$dest.tmp" "$url"; then
   chmod +x "$dest.tmp"
   mv "$dest.tmp" "$dest"
 else
-  # No prebuilt binary for this platform (yet): fall back to Python.
+  # Download failed (asset missing or no network): fall back to Python.
   rm -f "$dest.tmp"
-  say "no prebuilt binary for $os/$arch — installing from source instead"
+  say "could not fetch the $asset binary — installing from source instead"
   if command -v pipx >/dev/null 2>&1; then
     pipx install --force "git+https://github.com/$REPO.git"
   elif command -v python3 >/dev/null 2>&1 \
