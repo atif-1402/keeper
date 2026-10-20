@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/header.svg" alt="Keeper — which copy do I keep?" width="420">
+  <img src="assets/header.svg" alt="keeper — which copy do I keep?" width="560">
 </p>
 
 <p align="center">
@@ -10,7 +10,6 @@
   <a href="https://github.com/atif-1402/keeper/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-3fb950" alt="MIT license"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11%2B-4B8BBE" alt="Python 3.11+"></a>
   <a href="https://ollama.com/"><img src="https://img.shields.io/badge/Ollama-Gemma-6cd44b" alt="Ollama + Gemma"></a>
-  <img src="https://img.shields.io/badge/100%25-offline-22d3ee" alt="100% offline">
   <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey" alt="Linux, macOS, Windows">
   <a href="https://ko-fi.com/anom538"><img src="https://img.shields.io/badge/Ko--fi-Support%20me-ff5f5f?logo=ko-fi&logoColor=white" alt="Support on Ko-fi"></a>
 </p>
