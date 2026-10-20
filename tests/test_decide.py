@@ -77,3 +77,21 @@ def test_model_picks_sane_answer_on_signed_copy(messy_dir):
     dec = decide(group, model="gemma3:1b")
     # The signed, newest version is objectively the keeper.
     assert dec.keep.name == "rental_agreement_final_v2(1).txt"
+
+
+def test_model_is_skipped_when_nothing_is_readable(tmp_path, monkeypatch):
+    """Zips/images/videos have no text: the model must never be consulted."""
+    from keeper.group import cluster
+
+    (tmp_path / "app-data.zip").write_bytes(b"PK\x03\x04 payload one")
+    (tmp_path / "app-data (2).zip").write_bytes(b"PK\x03\x04 payload two")
+
+    def boom(*_args, **_kwargs):
+        raise AssertionError("_ask_model must not run for unreadable clusters")
+
+    monkeypatch.setattr("keeper.decide._ask_model", boom)
+    groups = cluster(_facts(tmp_path))
+    assert len(groups) == 1
+    dec = decide(groups[0], use_model=True)
+    assert dec.method == "rule"
+    assert "no readable text" in dec.reason

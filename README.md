@@ -14,14 +14,18 @@ keeper ~/Downloads --restore  # put everything back, byte-for-byte
 
 Duplicate finders tell you files are identical. Diff tools make you pick the two files to compare by hand. Neither one answers the question you actually have: **"I have five versions of the same document — which one do I keep?"**
 
-Keeper walks the folder itself, clusters the versions, and gives you a verdict with a one-line reason attached:
+Keeper walks the folder itself, clusters the versions, and gives you a colored verdict table with a one-line reason per cluster:
 
 ```
-[1] 3 copies of the same thing  (decided by model)
-    KEEP   rental_agreement_final_v2(1).txt
-    WHY    This is the newest version and includes both signed lines.
-    loser  rental_agreement.txt
-    loser  rental_agreement_final.txt
+  4 of 5 cluster(s) have text to read -> asking gemma3:1b for those;
+  the rest are decided instantly from metadata
+
+ #  Copies  KEEP                            Decided  Why                             Losers
+ 1      3   rental_agreement_final_v2(1).   model    The agreement is finalized and   rental_agreement.txt,
+            txt                                       includes a specific allowance    rental_agreement_final.txt
+                                                     for a cat.
+ 4      2   passport_scan2.pdf              identical  all copies are byte-identical;  passport_scan.pdf
+                                                     kept the newest timestamp
 ```
 
 ## How it works
@@ -39,9 +43,9 @@ flowchart LR
 ```
 
 1. **Scan** — walks the folder (skipping `.git`, `node_modules`, its own quarantine), records size, mtime, and sha256.
-2. **Extract** — pulls text from `.txt`, `.md`, `.csv`, `.pdf` (pypdf), `.docx` (python-docx). A scanned PDF with no text layer is honestly flagged instead of treated as empty.
-3. **Group** — byte-identical files cluster by hash; near-duplicates cluster by filename-token overlap (`rental_agreement_final_v2(1)` ≈ `rental_agreement`) and TF-IDF cosine over extracted content. Pure Python, no ML dependency.
-4. **Decide** — one call per cluster to a **local Ollama model** (`gemma3:1b` by default, `--model gemma3:4b` to upgrade), temperature 0, forced JSON: `{keep, reason, confidence}`. If Ollama is down or the answer is unusable, a transparent rule fallback takes over: readable beats unreadable, newest wins, bigger wins.
+2. **Extract** — pulls text from `.txt`, `.md`, `.csv`, `.pdf` (pypdf), `.docx` (python-docx). A scanned PDF with no text layer is honestly flagged instead of treated as empty. Images, video, audio, archives and fonts are recognized as media up front — their bytes are never decoded into garbage "text".
+3. **Group** — byte-identical files cluster by hash; near-duplicates cluster by filename-token overlap (`rental_agreement_final_v2(1)` ≈ `rental_agreement`, browser `(2)` collision suffixes stripped) and TF-IDF cosine over extracted content. Names carrying *different* identity numbers (`S07E02` vs `S07E04`, `Lesson13` vs `Lesson14`) are never merged — TV episodes and numbered lessons stay apart. Pure Python, no ML dependency.
+4. **Decide** — only clusters with readable text get a model call; byte-identical clusters and unreadable ones (zips, images, videos) are settled instantly from metadata, so a low-end machine runs Gemma only when it actually matters. Each call goes to a **local Ollama model** (`gemma3:1b` by default, `--model gemma3:4b` to upgrade), temperature 0, capped output, forced JSON: `{keep, reason, confidence}`. If Ollama is down or the answer is unusable, a transparent rule fallback takes over: readable beats unreadable, newest wins, bigger wins — and a model verdict that contradicts hard evidence (signed/newest) is overruled, not trusted.
 5. **Quarantine** — `--apply` moves losers into `_keeper_quarantine/<group>/` with a `manifest.json` and a portable `restore.sh`. `--restore` puts every file back where it came from.
 
 ## Safety model

@@ -14,11 +14,11 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .decide import DEFAULT_MODEL, decide, model_available
+from .decide import DEFAULT_MODEL, decide, model_available, would_use_model
 from .extract import extract_text
 from .group import cluster
 from .quarantine import QDIR, GroupDecision, apply_quarantine, restore
-from .report import markdown_report, terminal_summary
+from .report import markdown_report, render_decisions
 from .scan import scan
 
 
@@ -66,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"note: {error}")
         return 0
 
-    print(f"Keeper v{__version__} — scanning {root} ...", flush=True)
+    print(f"Scanning {root} ...", flush=True)
     print("  hashing + walking (files over 64 MB skip hashing) ...", flush=True)
 
     facts = scan(root)
@@ -88,25 +88,32 @@ def main(argv: list[str] | None = None) -> int:
         print("  (Start it with `ollama serve` to get model verdicts.)\n")
         use_model = False
 
+    worthy = sum(1 for g in clusters if would_use_model(g)) if use_model else 0
     if clusters:
-        if use_model:
-            print(f"  deciding with {args.model}: one model call per cluster "
-                  f"(~5-10s each on this machine)\n", flush=True)
-        else:
-            print("  deciding with the rule engine (instant)\n", flush=True)
+        if args.no_model:
+            print("  --no-model: deciding with the rule engine (instant)\n", flush=True)
+        elif use_model:
+            if worthy:
+                print(f"  {worthy} of {len(clusters)} cluster(s) have text to read -> "
+                      f"asking {args.model} for those; the rest are decided instantly "
+                      f"from metadata\n", flush=True)
+            else:
+                print("  no model calls needed — every cluster is decided from "
+                      "metadata alone\n", flush=True)
+        # (Ollama down: its notice above already covered the blank line.)
 
     decisions: list[GroupDecision] = []
     for i, group in enumerate(clusters, start=1):
         dec = decide(group, model=args.model, use_model=use_model)
         decisions.append(GroupDecision(files=group, decision=dec))
-        how = {"model": "model", "rule": "fallback rule",
-               "identical": "byte-identical"}.get(dec.method, dec.method)
+        how = {"model": "model", "rule": "fallback",
+               "identical": "identical"}.get(dec.method, dec.method)
         print(f"  [{i}/{len(clusters)}] KEEP {dec.keep.name}  "
               f"({how}, {len(group)} copies)", flush=True)
     if clusters:
         print(flush=True)
 
-    print(terminal_summary(decisions, str(root)))
+    render_decisions(decisions)
 
     if args.report:
         Path(args.report).write_text(markdown_report(decisions, str(root)), encoding="utf-8")

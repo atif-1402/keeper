@@ -55,3 +55,17 @@ def test_binary_is_detected(tmp_path):
     text, status = extract_text(p)
     assert status == "binary"
     assert text == ""
+
+
+def test_media_extension_is_never_text(tmp_path):
+    # JPEG bytes with no NUL: decoding them once produced garbage "text" that
+    # made random photos cluster together. Media extensions are binary, period.
+    p = tmp_path / "photo.jpg"
+    p.write_bytes(b"\xff\xd8\xff\xe0JFIF with readable metadata " * 8)
+    text, status = extract_text(p)
+    assert status == "binary"
+    assert text == ""
+
+    video = tmp_path / "clip.mkv"
+    video.write_bytes(b"\x1a\x45\xdf\xa3 EBML header readable string")
+    assert extract_text(video) == ("", "binary")

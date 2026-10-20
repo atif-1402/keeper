@@ -5,7 +5,8 @@ Two passes:
 1. **Identical copies** — same sha256 = same bytes. Trivial cluster.
 2. **Near-duplicates** — same *thing*, different content: filename-token
    overlap ("rental_agreement_final_v2(1).pdf" vs "rental_agreement.pdf")
-   or content similarity (TF-IDF cosine over extracted text).
+   or content similarity (TF-IDF cosine over extracted text, same format
+   only — a stylesheet is never a version of a page).
 
 Union-find glues everything into clusters. Files Keeper couldn't read
 (scans, binaries with no name twin) are never content-compared — they only
@@ -32,24 +33,45 @@ VERSION_TOKENS = {
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
 _V_TOKEN_RE = re.compile(r"^v\d+$")  # v2, v3, ... — pure file-version noise
+_COLLISION_SUFFIX_RE = re.compile(r"\s*\(\d+\)$")  # browser copies: "file (2)"
 
 # Thresholds.
-NAME_JACCARD_MIN = 0.6    # filename token overlap to call two files related
-CONTENT_COSINE_MIN = 0.55  # text similarity to call two files related
+NAME_JACCARD_MIN = 0.6     # filename token overlap to call two files related
+CONTENT_COSINE_MIN = 0.70  # text similarity for a content-based match (real
+                           # copies score ~1.0; unrelated web assets sit ~0.68)
+CONTENT_STRICT_MIN = 0.85  # needed when the names carry conflicting identity
+                           # numbers (episode codes, lesson numbers, years)
+
+
+def _strip_collision(stem: str) -> str:
+    """Drop trailing ``(1)``/`` (14)`` download-collision suffixes."""
+    while (m := _COLLISION_SUFFIX_RE.search(stem)):
+        stem = stem[: m.start()]
+    return stem
 
 
 def tokens_of(name: str) -> set[str]:
     """All word tokens in a filename, lowercased (keeps version digits)."""
     stem = name.rsplit(".", 1)[0] if "." in name else name
-    return set(_WORD_RE.findall(stem.lower()))
+    return set(_WORD_RE.findall(_strip_collision(stem).lower()))
 
 
 def norm_stem(name: str) -> str:
-    """Filename stem with the file-management words removed."""
+    """Filename stem with collision suffixes and file-management words removed."""
     stem = name.rsplit(".", 1)[0] if "." in name else name
-    words = _WORD_RE.findall(stem.lower())
+    words = _WORD_RE.findall(_strip_collision(stem).lower())
     kept = [w for w in words if w not in VERSION_TOKENS and not _V_TOKEN_RE.match(w)]
     return " ".join(kept or words)
+
+
+def identity_digits(tokens: set[str]) -> set[str]:
+    """Tokens carrying digits — episode codes, lesson numbers, years.
+
+    Two names with *different* identity numbers are different documents
+    (S07E02 vs S07E04, Lesson14 vs Lesson13), no matter how many other
+    words they share.
+    """
+    return {t for t in tokens if any(c.isdigit() for c in t)}
 
 
 class _UnionFind:
@@ -136,6 +158,7 @@ def cluster(files: list[FileFact]) -> list[list[FileFact]]:
         candidate_pairs.add((a, b))
 
     # Content vectors for readable files (one pass over the texts).
+    identity = [identity_digits(t) for t in tok_sets]
     readable_idx = [i for i, f in enumerate(files) if f.readable]
     vectors: dict[int, dict[str, float]] = {}
     if readable_idx:
@@ -145,17 +168,30 @@ def cluster(files: list[FileFact]) -> list[list[FileFact]]:
     for a, b in candidate_pairs:
         if uf.find(a) == uf.find(b):
             continue
+        # Conflicting identity numbers (S07E02 vs S07E04, Lesson14 vs 13)
+        # mean different documents: the name may never match them, and only
+        # near-identical content could still save the pair.
+        digit_conflict = bool(
+            identity[a] and identity[b] and identity[a] != identity[b]
+        )
+
         # Name signal.
         name_score = (
             len(tok_sets[a] & tok_sets[b]) / len(tok_sets[a] | tok_sets[b])
             if tok_sets[a] and tok_sets[b] else 0.0
         )
-        matched = name_score >= NAME_JACCARD_MIN or (
-            norm_stems[a] and norm_stems[a] == norm_stems[b]
+        matched = not digit_conflict and (
+            name_score >= NAME_JACCARD_MIN
+            or (norm_stems[a] and norm_stems[a] == norm_stems[b])
         )
-        # Content signal.
-        if not matched and a in vectors and b in vectors:
-            matched = _cosine(vectors[a], vectors[b]) >= CONTENT_COSINE_MIN
+        # Content signal: same format only. A saved webpage's stylesheet
+        # shares ~74% of its tokens with the page that inlined it — still not
+        # versions of the same document. Cross-format twins (a .docx and its
+        # .txt export) cluster through their shared name instead.
+        if (not matched and a in vectors and b in vectors
+                and files[a].path.suffix == files[b].path.suffix):
+            threshold = CONTENT_STRICT_MIN if digit_conflict else CONTENT_COSINE_MIN
+            matched = _cosine(vectors[a], vectors[b]) >= threshold
         if matched:
             uf.union(a, b)
 

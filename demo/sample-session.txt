@@ -1,72 +1,41 @@
 $ keeper demo/messy-demo
-Keeper v0.1.0 — scanning demo/messy-demo ...
+Scanning demo/messy-demo ...
+  hashing + walking (files over 64 MB skip hashing) ...
   13 files found
+  extracting text (txt/md/csv/pdf/docx) ...
   9 readable as text, 2 with no text layer (scans/images)
   5 duplicate cluster(s)
 
+  4 of 5 cluster(s) have text to read -> asking gemma3:1b for those; the rest are decided instantly from metadata
 
-[1] 3 copies of the same thing  (decided by model)
-    KEEP   rental_agreement_final_v2(1).txt
-    WHY    The agreement is finalized and includes a specific allowance for a cat.
-    loser  rental_agreement.txt
-    loser  rental_agreement_final.txt
+  [1/5] KEEP rental_agreement_final_v2(1).txt  (model, 3 copies)
+  [2/5] KEEP contract_signed.docx  (model, 2 copies)
+  [3/5] KEEP insurance_claim_v2.txt  (model, 2 copies)
+  [4/5] KEEP passport_scan2.pdf  (identical, 2 copies)
+  [5/5] KEEP scan001_copy.pdf  (model, 2 copies)
 
-[2] 2 copies of the same thing  (decided by model)
-    KEEP   contract_signed.docx
-    WHY    The document is signed and contains key information about the agreement.
-    loser  contract_signed.txt
-
-[3] 2 copies of the same thing  (decided by model)
-    KEEP   insurance_claim_v2.txt
-    WHY    The document is more recently modified and has more complete information.
-    loser  insurance_claim.txt
-
-[4] 2 copies of the same thing  (decided by byte-identical)
-    KEEP   passport_scan2.pdf
-    WHY    all copies are byte-identical; kept the newest timestamp
-    loser  passport_scan.pdf
-
-[5] 2 copies of the same thing  (decided by model)
-    KEEP   scan001_copy.pdf
-    WHY    The document is revised, indicating a more recent update.
-    loser  scan001.pdf
-
+ #   Copi…   KEEP                               Decided     Why                                      Losers                                 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ 1       3   rental_agreement_final_v2(1).txt   model       The agreement is finalized and           rental_agreement.txt,                  
+                                                            includes a specific allowance for a      rental_agreement_final.txt             
+                                                            cat, making it the most relevant.                                               
+ 2       2   contract_signed.docx               model       The document contains signatures and     contract_signed.txt                    
+                                                            approvals, indicating it’s a finalized                                          
+                                                            version.                                                                        
+ 3       2   insurance_claim_v2.txt             model       The document is more recently modified   insurance_claim.txt                    
+                                                            and contains a more updated repair                                              
+                                                            cost.                                                                           
+ 4       2   passport_scan2.pdf                 identical   all copies are byte-identical; kept      passport_scan.pdf                      
+                                                            the newest timestamp                                                            
+ 5       2   scan001_copy.pdf                   model       The document is revised, indicating a    scan001.pdf                            
+                                                            more recent update.                                                             
 DRY RUN — nothing was moved (6 loser(s) would be quarantined).
 Run again with --apply to quarantine them, or --restore to undo.
 
 $ keeper demo/messy-demo --apply
-Keeper v0.1.0 — scanning demo/messy-demo ...
-  13 files found
-  9 readable as text, 2 with no text layer (scans/images)
-  5 duplicate cluster(s)
-
-
-[1] 3 copies of the same thing  (decided by model)
-    KEEP   rental_agreement_final_v2(1).txt
-    WHY    The agreement is finalized and includes a specific allowance for a cat.
-    loser  rental_agreement.txt
-    loser  rental_agreement_final.txt
-
-[2] 2 copies of the same thing  (decided by model)
-    KEEP   contract_signed.docx
-    WHY    The document is signed and contains key information about the agreement.
-    loser  contract_signed.txt
-
-[3] 2 copies of the same thing  (decided by model)
-    KEEP   insurance_claim_v2.txt
-    WHY    The document is more recently modified and has more complete information.
-    loser  insurance_claim.txt
-
-[4] 2 copies of the same thing  (decided by byte-identical)
-    KEEP   passport_scan2.pdf
-    WHY    all copies are byte-identical; kept the newest timestamp
-    loser  passport_scan.pdf
-
-[5] 2 copies of the same thing  (decided by model)
-    KEEP   scan001_copy.pdf
-    WHY    The document is revised, indicating a more recent update.
-    loser  scan001.pdf
-
+                                                            the newest timestamp                                                            
+ 5       2   scan001_copy.pdf                   model       The document is revised, indicating a    scan001.pdf                            
+                                                            more recent update.                                                             
 Quarantined 6 file(s) -> demo/messy-demo/_keeper_quarantine/
   manifest: /home/atif/Projects/keeper/demo/messy-demo/_keeper_quarantine/manifest.json
   undo with: keeper demo/messy-demo --restore   (or demo/messy-demo/_keeper_quarantine/restore.sh)

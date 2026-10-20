@@ -80,12 +80,30 @@ def model_available(host: str = OLLAMA_HOST) -> bool:
         return False
 
 
-def _excerpt(text: str, limit: int = 1400) -> str:
+def _excerpt(text: str, limit: int = 600) -> str:
+    """Short excerpt — enough for a tiny model to judge, cheap on prompt tokens."""
     if len(text) <= limit:
         return text.strip()
-    head = text[: int(limit * 0.7)].strip()
-    tail = text[-int(limit * 0.3):].strip()
-    return f"{head}\n...[Keeper trimmed the middle]...\n{tail}"
+    head = text[: int(limit * 0.75)].strip()
+    tail = text[-int(limit * 0.25):].strip()
+    return f"{head}\n...\n{tail}"
+
+
+def _excerpts_for(group: list[FileFact], cap: int = 3) -> list[FileFact]:
+    """Pick at most ``cap`` readable files to show the model: signed first,
+    then the newest, then the rest in order. A 15-copy cluster gets the three
+    copies that actually matter instead of 15 walls of text."""
+    readable = [f for f in group if f.readable]
+    newest = max(group, key=lambda f: f.mtime)
+    picked: list[FileFact] = []
+    for candidate in ([f for f in readable if is_signed(f)]
+                      + ([newest] if newest in readable else [])
+                      + readable):
+        if candidate not in picked:
+            picked.append(candidate)
+        if len(picked) >= cap:
+            break
+    return sorted(picked, key=group.index)
 
 
 def _build_user_prompt(group: list[FileFact]) -> str:
@@ -103,7 +121,7 @@ def _build_user_prompt(group: list[FileFact]) -> str:
 
     excerpts = "\n\n".join(
         f"--- {fact.name} ---\n{_excerpt(fact.text)}"
-        for fact in group if fact.readable
+        for fact in _excerpts_for(group)
     )
 
     return "\n".join(
@@ -124,7 +142,7 @@ def _ask_model(group: list[FileFact], model: str, host: str = OLLAMA_HOST) -> di
         "model": model,
         "stream": False,
         "format": "json",
-        "options": {"temperature": 0.0},
+        "options": {"temperature": 0.0, "num_predict": 80},
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": _build_user_prompt(group)},
@@ -149,13 +167,21 @@ def _rule_decision(group: list[FileFact]) -> Decision:
     signed = [f for f in group if is_signed(f)]
     readable = [f for f in group if f.readable]
     if signed:
-        pool, why = signed, "fallback rule: newest signed copy"
+        pool, why = signed, "newest signed copy"
     elif readable:
-        pool, why = readable, "fallback rule: newest file Keeper could actually read"
+        pool, why = readable, "newest copy with text"
     else:
-        pool, why = group, "fallback rule: no copy had a readable text layer"
+        pool, why = group, "no readable text; kept the newest copy"
     keep = max(pool, key=lambda f: (f.mtime, f.size))
     return Decision(keep=keep, reason=why, confidence=0.6, method="rule")
+
+
+def would_use_model(group: list[FileFact]) -> bool:
+    """True when this cluster actually warrants a model call: not already
+    decided by byte-identity, and at least one copy has text to read."""
+    if len({f.sha256 for f in group}) == 1 and group[0].sha256:
+        return False
+    return any(f.readable for f in group)
 
 
 def decide(group: list[FileFact], *, model: str = DEFAULT_MODEL,
@@ -168,6 +194,17 @@ def decide(group: list[FileFact], *, model: str = DEFAULT_MODEL,
             reason="all copies are byte-identical; kept the newest timestamp",
             confidence=1.0,
             method="identical",
+        )
+
+    if not any(f.readable for f in group):
+        # Nothing readable (zips, images, videos): a model would only guess
+        # from filenames — the metadata rule already knows the answer.
+        keep = max(group, key=lambda f: (f.mtime, f.size))
+        return Decision(
+            keep=keep,
+            reason="no readable text in this cluster; kept the newest copy",
+            confidence=0.5,
+            method="rule",
         )
 
     if not use_model or not model_available(host):
@@ -189,11 +226,10 @@ def decide(group: list[FileFact], *, model: str = DEFAULT_MODEL,
         # evidence (signed / newest flags). Disagreement -> honest fallback.
         if not _verdict_consistent(match, group):
             winner = hard_winner(group)
-            signal = "signed copy" if is_signed(winner) else "newest copy"
+            signal = "signed" if is_signed(winner) else "newest"
             return Decision(
                 keep=winner,
-                reason=(f"model picked '{match.name}', but the {signal} "
-                        f"'{winner.name}' wins on metadata"),
+                reason=f"model disagreed; the {signal} copy wins on metadata",
                 confidence=0.5,
                 method="rule",
             )
