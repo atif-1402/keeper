@@ -11,7 +11,13 @@ from __future__ import annotations
 
 import argparse
 import sys
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Callable, Iterator
+
+from rich.console import Console
+from rich.live import Live
+from rich.spinner import Spinner
 
 from . import __version__
 from .decide import DEFAULT_MODEL, decide, model_available, would_use_model
@@ -20,6 +26,23 @@ from .group import cluster
 from .quarantine import QDIR, GroupDecision, apply_quarantine, restore
 from .report import markdown_report, render_decisions
 from .scan import scan
+
+console = Console()
+
+
+@contextmanager
+def _phase(text: str) -> Iterator[Callable[[str], None]]:
+    """A live spinner that replaces itself on a terminal; a one-line note
+    when the output is piped (tests, demos, logs)."""
+    if console.is_terminal:
+        with Live(Spinner("dots", text=text), console=console,
+                  transient=True, refresh_per_second=10) as live:
+            def update(new_text: str) -> None:
+                live.update(Spinner("dots", text=new_text))
+            yield update
+    else:
+        print(f"  {text} ...", flush=True)
+        yield lambda _new: None
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -67,50 +90,46 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     print(f"Scanning {root} ...", flush=True)
-    print("  hashing + walking (files over 64 MB skip hashing) ...", flush=True)
 
-    facts = scan(root)
-    print(f"  {len(facts)} files found", flush=True)
+    with _phase("hashing files") as set_phase:
+        facts = scan(root)
+        set_phase("extracting text (txt/md/csv/pdf/docx)")
+        for fact in facts:
+            fact.text, fact.status = extract_text(fact.path)
+        set_phase("clustering duplicates")
+        clusters = cluster(facts)
 
-    print("  extracting text (txt/md/csv/pdf/docx) ...", flush=True)
-    for fact in facts:
-        fact.text, fact.status = extract_text(fact.path)
     readable = sum(1 for f in facts if f.readable)
     flagged = sum(1 for f in facts if f.status == "no_text_layer")
-    print(f"  {readable} readable as text, {flagged} with no text layer (scans/images)", flush=True)
-
-    clusters = cluster(facts)
-    print(f"  {len(clusters)} duplicate cluster(s)\n", flush=True)
+    print(f"  {len(facts)} files · {readable} readable · {flagged} no text layer "
+          f"· {len(clusters)} duplicate cluster(s)\n", flush=True)
 
     use_model = not args.no_model
     if use_model and clusters and not model_available():
-        print("  Ollama is not running — falling back to the rule engine for all groups.")
+        print("  Ollama is not running — falling back to the rule engine.")
         print("  (Start it with `ollama serve` to get model verdicts.)\n")
         use_model = False
 
     worthy = sum(1 for g in clusters if would_use_model(g)) if use_model else 0
-    if clusters:
-        if args.no_model:
-            print("  --no-model: deciding with the rule engine (instant)\n", flush=True)
-        elif use_model:
-            if worthy:
-                print(f"  {worthy} of {len(clusters)} cluster(s) have text to read -> "
-                      f"asking {args.model} for those; the rest are decided instantly "
-                      f"from metadata\n", flush=True)
-            else:
-                print("  no model calls needed — every cluster is decided from "
-                      "metadata alone\n", flush=True)
-        # (Ollama down: its notice above already covered the blank line.)
 
     decisions: list[GroupDecision] = []
-    for i, group in enumerate(clusters, start=1):
-        dec = decide(group, model=args.model, use_model=use_model)
-        decisions.append(GroupDecision(files=group, decision=dec))
-        how = {"model": "model", "rule": "fallback",
-               "identical": "identical"}.get(dec.method, dec.method)
-        print(f"  [{i}/{len(clusters)}] KEEP {dec.keep.name}  "
-              f"({how}, {len(group)} copies)", flush=True)
+    asked = 0
     if clusters:
+        label = (f"asking {args.model} (0/{worthy})" if worthy
+                 else "deciding from metadata")
+        with _phase(label) as set_phase:
+            for group in clusters:
+                if worthy and would_use_model(group):
+                    asked += 1
+                    head = f"asking {args.model} — {asked}/{worthy}: {group[0].name}"
+                    if console.is_terminal:
+                        set_phase(head)
+                    else:
+                        print(f"  {head}", flush=True)
+                decisions.append(GroupDecision(
+                    files=group,
+                    decision=decide(group, model=args.model, use_model=use_model),
+                ))
         print(flush=True)
 
     render_decisions(decisions)
