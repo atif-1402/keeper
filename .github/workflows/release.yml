@@ -21,7 +21,7 @@ jobs:
           - { os: ubuntu-24.04-arm, asset: keeper-linux-aarch64 }
           - { os: windows-latest,   asset: keeper-windows-x86_64.exe }
           - { os: macos-latest,     asset: keeper-macos-aarch64 }
-          - { os: macos-13,         asset: keeper-macos-x86_64 }
+          - { os: macos-15-intel,   asset: keeper-macos-x86_64 }
     steps:
       - uses: actions/checkout@v4
 
