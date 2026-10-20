@@ -66,19 +66,21 @@ def main(argv: list[str] | None = None) -> int:
             print(f"note: {error}")
         return 0
 
-    print(f"Keeper v{__version__} — scanning {root} ...")
+    print(f"Keeper v{__version__} — scanning {root} ...", flush=True)
+    print("  hashing + walking (files over 64 MB skip hashing) ...", flush=True)
 
     facts = scan(root)
-    print(f"  {len(facts)} files found")
+    print(f"  {len(facts)} files found", flush=True)
 
+    print("  extracting text (txt/md/csv/pdf/docx) ...", flush=True)
     for fact in facts:
         fact.text, fact.status = extract_text(fact.path)
     readable = sum(1 for f in facts if f.readable)
     flagged = sum(1 for f in facts if f.status == "no_text_layer")
-    print(f"  {readable} readable as text, {flagged} with no text layer (scans/images)")
+    print(f"  {readable} readable as text, {flagged} with no text layer (scans/images)", flush=True)
 
     clusters = cluster(facts)
-    print(f"  {len(clusters)} duplicate cluster(s)\n")
+    print(f"  {len(clusters)} duplicate cluster(s)\n", flush=True)
 
     use_model = not args.no_model
     if use_model and clusters and not model_available():
@@ -86,10 +88,23 @@ def main(argv: list[str] | None = None) -> int:
         print("  (Start it with `ollama serve` to get model verdicts.)\n")
         use_model = False
 
+    if clusters:
+        if use_model:
+            print(f"  deciding with {args.model}: one model call per cluster "
+                  f"(~5-10s each on this machine)\n", flush=True)
+        else:
+            print("  deciding with the rule engine (instant)\n", flush=True)
+
     decisions: list[GroupDecision] = []
-    for group in clusters:
+    for i, group in enumerate(clusters, start=1):
         dec = decide(group, model=args.model, use_model=use_model)
         decisions.append(GroupDecision(files=group, decision=dec))
+        how = {"model": "model", "rule": "fallback rule",
+               "identical": "byte-identical"}.get(dec.method, dec.method)
+        print(f"  [{i}/{len(clusters)}] KEEP {dec.keep.name}  "
+              f"({how}, {len(group)} copies)", flush=True)
+    if clusters:
+        print(flush=True)
 
     print(terminal_summary(decisions, str(root)))
 
