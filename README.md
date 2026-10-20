@@ -30,12 +30,12 @@ Keeper walks the folder itself, clusters the versions, and gives you a colored v
 
 ```
 ┌───┬────────┬──────────────────────────────────────┬─────────────┬────────────────────────────────┬─────────────────────────┐
-│ # │ Copies │ KEEP                                 │ Decided     │ Why                            │ Losers                   │
-╞═══╪════════╪══════════════════════════════════════╪═════════════╪══════════════════════════════╪═════════════════════════╡
-│ 1 │      3 │ rental_agreement_final_v2(1).txt     │ ● model     │ The agreement is finalized and │ rental_agreement.txt     │
+│ # │ Copies │ KEEP                                 │ Decided     │ Why                            │ Losers                  │
+╞═══╪════════╪══════════════════════════════════════╪═════════════╪════════════════════════════════╪═════════════════════════╡
+│ 1 │      3 │ rental_agreement_final_v2(1).txt     │ ● model     │ The agreement is finalized and │ rental_agreement.txt    │
 │   │        │                                      │             │ includes a cat allowance.      │ rental_agreement_… +1   │
 ├───┼────────┼──────────────────────────────────────┼─────────────┼────────────────────────────────┼─────────────────────────┤
-│ 4 │      2 │ passport_scan2.pdf                   │ ◆ identical │ all copies are byte-identical; │ passport_scan.pdf        │
+│ 4 │      2 │ passport_scan2.pdf                   │ ◆ identical │ all copies are byte-identical; │ passport_scan.pdf       │
 │   │        │                                      │             │ kept the newest timestamp      │                         │
 └───┴────────┴──────────────────────────────────────┴─────────────┴────────────────────────────────┴─────────────────────────┘
 ```
