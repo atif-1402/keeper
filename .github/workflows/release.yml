@@ -55,6 +55,9 @@ jobs:
 
   release:
     needs: build
+    # Publish whatever platforms built, even if one leg failed — a partial
+    # release beats no release.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
