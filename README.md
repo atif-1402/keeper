@@ -1,10 +1,34 @@
-# Keeper
+<p align="center">
+  <img src="assets/header.svg" alt="Keeper — which copy do I keep?" width="720">
+</p>
 
-**Your folder has a `contract.pdf`, `contract_final.pdf`, `contract_final_v2(1).pdf`, and `contract_FINAL (copy).pdf`. Which one is the real one?**
+<p align="center">
+  <b>Your folder has a <code>contract.pdf</code>, <code>contract_final.pdf</code>, <code>contract_final_v2(1).pdf</code>, and <code>contract_FINAL (copy).pdf</code>. Which one is the real one?</b>
+</p>
 
-Keeper answers that. It scans a folder full of version-clone files, groups them by *actual content* (not filename), asks a local open-weight model which copy is the keeper and **why**, and quarantines the rest. Dry-run by default. It never deletes a thing.
+<p align="center">
+  Keeper answers that. It scans a folder full of version-clone files, groups them by <i>actual content</i> (not filename),<br>
+  asks a local open-weight model which copy is the keeper and <b>why</b>, and quarantines the rest.<br>
+  Dry-run by default. It never deletes a thing.
+</p>
 
-```
+<p align="center">
+  <a href="https://github.com/atif-1402/keeper/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-3fb950" alt="MIT license"></a>
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11%2B-4B8BBE" alt="Python 3.11+"></a>
+  <a href="https://ollama.com/"><img src="https://img.shields.io/badge/Ollama-Gemma-6cd44b" alt="Ollama + Gemma"></a>
+  <img src="https://img.shields.io/badge/100%25-offline-22d3ee" alt="100% offline">
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey" alt="Linux, macOS, Windows">
+</p>
+
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#safety-model">Safety model</a> ·
+  <a href="#cli">CLI</a> ·
+  <a href="#why-open-innovation-matters-here">Why open weights</a>
+</p>
+
+```bash
 keeper ~/Downloads            # scan + verdicts, moves nothing
 keeper ~/Downloads --apply    # quarantine the losers
 keeper ~/Downloads --restore  # put everything back, byte-for-byte
@@ -129,4 +153,3 @@ Tests cover extraction (including the no-text-layer flag), clustering, decision 
 ## License
 
 MIT — see [LICENSE](LICENSE).
-# keeper
