@@ -56,7 +56,9 @@ class _Phase:
         self.done = 0
         self.started = time.monotonic()
         self._live: Live | None = None
+        self._spinner: Spinner | None = None
         self._stop: threading.Event | None = None
+        self._thread: threading.Thread | None = None
 
     def _label(self) -> str:
         elapsed = time.monotonic() - self.started
@@ -84,23 +86,30 @@ class _Phase:
 
     def __enter__(self) -> "_Phase":
         if console.is_terminal:
-            self._live = Live(Spinner("dots", self._label()), console=console,
-                              transient=True, refresh_per_second=10)
+            # One Spinner instance for the whole phase: its animation clock
+            # keeps running while only the text changes, so the frames turn
+            # smoothly instead of resetting every tick.
+            self._spinner = Spinner("dots", self._label())
+            self._live = Live(self._spinner, console=console, transient=True,
+                              refresh_per_second=10)
             self._live.start()
             self._stop = threading.Event()
-            tick = threading.Thread(target=self._tick, daemon=True)
-            tick.start()
+            self._thread = threading.Thread(target=self._tick, daemon=True)
+            self._thread.start()
         else:
             print(f"  {self._label()} ...", flush=True)
         return self
 
     def _tick(self) -> None:
-        while not self._stop.wait(0.4):
-            self._live.update(Spinner("dots", self._label()))
+        while not self._stop.wait(0.3):
+            self._spinner.text = self._label()
+            self._live.update(self._spinner)
 
     def __exit__(self, *_exc: object) -> None:
         if self._stop is not None:
             self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1.0)  # no updates after the line is gone
         if self._live is not None:
             self._live.stop()
 
