@@ -15,11 +15,22 @@
 </p>
 
 <p align="center">
+  <a href="#demo">Demo</a> ·
   <a href="#install">Install</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#safety-model">Safety model</a> ·
   <a href="#cli">CLI</a> ·
   <a href="#why-open-innovation-matters-here">Why open weights</a>
+</p>
+
+## Demo
+
+<p align="center">
+  <img src="assets/demo.gif" alt="Keeper scanning ~/keeper-testing: spinner, verdict table, quarantine" width="820">
+</p>
+
+<p align="center">
+  <sub><i>In my case it takes time — I'm on a low-end device, and local LLMs are heavy. Sorry for the bad quality!</i></sub>
 </p>
 
 ## Why this exists
