@@ -1,15 +1,9 @@
 <p align="center">
-  <img src="assets/header.svg" alt="Keeper — which copy do I keep?" width="720">
+  <img src="assets/header.svg" alt="Keeper — which copy do I keep?" width="420">
 </p>
 
 <p align="center">
-  <b>Your folder has a <code>contract.pdf</code>, <code>contract_final.pdf</code>, <code>contract_final_v2(1).pdf</code>, and <code>contract_FINAL (copy).pdf</code>. Which one is the real one?</b>
-</p>
-
-<p align="center">
-  Keeper answers that. It scans a folder full of version-clone files, groups them by <i>actual content</i> (not filename),<br>
-  asks a local open-weight model which copy is the keeper and <b>why</b>, and quarantines the rest.<br>
-  Dry-run by default. It never deletes a thing.
+  Finds version-clone files in any folder, asks a local open-weight model which copy to keep, and quarantines the rest — dry-run by default, 100% offline.
 </p>
 
 <p align="center">
@@ -18,6 +12,7 @@
   <a href="https://ollama.com/"><img src="https://img.shields.io/badge/Ollama-Gemma-6cd44b" alt="Ollama + Gemma"></a>
   <img src="https://img.shields.io/badge/100%25-offline-22d3ee" alt="100% offline">
   <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey" alt="Linux, macOS, Windows">
+  <a href="https://ko-fi.com/anom538"><img src="https://img.shields.io/badge/Ko--fi-Support%20me-ff5f5f?logo=ko-fi&logoColor=white" alt="Support on Ko-fi"></a>
 </p>
 
 <p align="center">

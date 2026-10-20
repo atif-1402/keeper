@@ -1,50 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="280" viewBox="0 0 1000 280" role="img" aria-label="Keeper — which copy do I keep?">
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="200" viewBox="0 0 760 200" role="img" aria-label="Keeper — which copy do I keep?">
   <defs>
-    <linearGradient id="kbg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#11161d"/>
-      <stop offset="1" stop-color="#0d1117"/>
-    </linearGradient>
-    <linearGradient id="ktitle" x1="0" y1="0" x2="1" y2="0">
+    <linearGradient id="kg" x1="0" y1="0" x2="1" y2="0">
       <stop offset="0" stop-color="#22d3ee"/>
       <stop offset="0.55" stop-color="#60a5fa"/>
       <stop offset="1" stop-color="#a78bfa"/>
     </linearGradient>
-    <radialGradient id="kglow" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#22d3ee" stop-opacity="0.16"/>
-      <stop offset="1" stop-color="#22d3ee" stop-opacity="0"/>
-    </radialGradient>
   </defs>
 
-  <rect x="1" y="1" width="998" height="278" rx="18" fill="url(#kbg)" stroke="#30363d" stroke-width="2"/>
-  <ellipse cx="175" cy="140" rx="165" ry="130" fill="url(#kglow)"/>
-
-  <!-- two losing copies fading back, one keeper in front -->
-  <rect x="108" y="58" width="110" height="140" rx="10" fill="#161b22" stroke="#30363d" stroke-width="2" opacity="0.5"/>
-  <circle cx="120" cy="70" r="13" fill="#f85149" opacity="0.55"/>
-  <path d="M115 65 l10 10 M125 65 l-10 10" stroke="#0d1117" stroke-width="2.5" stroke-linecap="round" opacity="0.8"/>
-
-  <rect x="122" y="70" width="110" height="140" rx="10" fill="#1c2128" stroke="#30363d" stroke-width="2" opacity="0.85"/>
-  <circle cx="134" cy="82" r="13" fill="#f85149" opacity="0.85"/>
-  <path d="M129 77 l10 10 M139 77 l-10 10" stroke="#0d1117" stroke-width="2.5" stroke-linecap="round"/>
-
-  <rect x="136" y="82" width="110" height="140" rx="10" fill="#0d1117" stroke="#3fb950" stroke-width="3"/>
-  <rect x="154" y="106" width="74" height="7" rx="3.5" fill="#30363d"/>
-  <rect x="154" y="126" width="58" height="7" rx="3.5" fill="#30363d"/>
-  <rect x="154" y="146" width="66" height="7" rx="3.5" fill="#30363d"/>
-  <circle cx="238" cy="214" r="21" fill="#3fb950" stroke="#0d1117" stroke-width="4"/>
-  <path d="M229 214 l6 7 l12 -14" stroke="#0d1117" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-
-  <g font-family="'Segoe UI', Ubuntu, 'Helvetica Neue', Arial, sans-serif">
-    <text x="312" y="132" font-size="88" font-weight="700" fill="url(#ktitle)">Keeper</text>
-    <text x="314" y="170" font-size="25" font-weight="600" fill="#e6edf3">Which copy do I keep?</text>
-    <text x="314" y="200" font-size="20" fill="#8b949e">Keeper scans a folder, asks a local open-weight model,</text>
-    <text x="314" y="226" font-size="20" fill="#8b949e">and quarantines the rest — offline, reversible, dry-run safe.</text>
+  <!-- minimal mark: one keeper document, one check -->
+  <g transform="translate(352 14)">
+    <rect x="2" y="2" width="52" height="64" rx="9" fill="none" stroke="url(#kg)" stroke-width="3"/>
+    <rect x="15" y="17" width="26" height="4" rx="2" fill="url(#kg)" opacity="0.55"/>
+    <rect x="15" y="27" width="18" height="4" rx="2" fill="url(#kg)" opacity="0.35"/>
+    <circle cx="48" cy="58" r="12" fill="#3fb950"/>
+    <path d="M42.5 58 l4 4.5 l7.5 -8.5" stroke="#0d1117" stroke-width="2.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
 
-  <!-- terminal strip -->
-  <rect x="312" y="240" width="316" height="30" rx="15" fill="#161b22" stroke="#30363d"/>
-  <circle cx="330" cy="255" r="4" fill="#f85149"/>
-  <circle cx="344" cy="255" r="4" fill="#d29922"/>
-  <circle cx="358" cy="255" r="4" fill="#3fb950"/>
-  <text x="376" y="260" font-family="'SFMono-Regular', Consolas, 'Liberation Mono', monospace" font-size="15" fill="#7ee787">keeper ~/Downloads</text>
+  <text x="380" y="140" text-anchor="middle" font-family="'Segoe UI', Ubuntu, 'Helvetica Neue', Arial, sans-serif" font-size="62" font-weight="700" fill="url(#kg)">Keeper</text>
+  <text x="380" y="172" text-anchor="middle" font-family="'Segoe UI', Ubuntu, 'Helvetica Neue', Arial, sans-serif" font-size="19" fill="#8b949e">which copy do I keep?</text>
 </svg>
