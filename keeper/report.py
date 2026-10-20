@@ -22,6 +22,18 @@ METHOD_LABEL = {
     "rule": "fallback rule",
 }
 
+# The house style: light outer frame, heavy header rule (╞═╪╡), solid grid.
+KEEPER_BOX = box.Box("""\
+┌─┬┐
+│ ││
+╞═╪╡
+│ ││
+├─┼┤
+├─┼┤
+│ ││
+└─┴┘
+""")
+
 
 def render_decisions(groups: list[GroupDecision]) -> None:
     """Print the verdict table: colored, one row per cluster.
@@ -39,16 +51,23 @@ def render_decisions(groups: list[GroupDecision]) -> None:
         console.print("No duplicate clusters found. That folder is already tidy.")
         return
 
-    # Width budget: ~19 cols of fixed columns + ~18 of padding/borders; the
-    # rest splits KEEP 34% / Why 30% / Losers gets the remainder.
+    # Width budget: # / Copies / Decided are fixed (~19 cols), overhead for
+    # padding and borders ~24; the remaining pool splits KEEP 40% / Why 32% /
+    # Losers the rest — so the table always fits the terminal exactly.
     width = console.width or 180
-    keep_w = max(24, int(width * 0.34))
-    why_w = max(30, int(width * 0.30))
-    losers_w = max(24, width - (2 + 6 + 11 + keep_w + why_w + 18))
+    avail = max(40, width - 19 - 24)
+    if avail >= 72:
+        keep_w = max(20, int(avail * 0.40))
+        why_w = max(26, int(avail * 0.32))
+        losers_w = max(20, avail - keep_w - why_w)
+    else:  # very narrow terminal: split what exists, no minimums
+        keep_w = int(avail * 0.42)
+        why_w = int(avail * 0.32)
+        losers_w = avail - keep_w - why_w
 
     table = Table(
-        box=box.ROUNDED, header_style="bold bright_cyan", show_edge=False,
-        show_lines=False, pad_edge=False,
+        box=KEEPER_BOX, header_style="bold bright_cyan", show_edge=True,
+        show_lines=True, pad_edge=False,
     )
     table.add_column("#", style="dim", width=2, no_wrap=True, justify="right")
     table.add_column("Copies", justify="right", width=6, no_wrap=True)

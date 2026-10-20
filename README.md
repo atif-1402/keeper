@@ -14,14 +14,18 @@ keeper ~/Downloads --restore  # put everything back, byte-for-byte
 
 Duplicate finders tell you files are identical. Diff tools make you pick the two files to compare by hand. Neither one answers the question you actually have: **"I have five versions of the same document — which one do I keep?"**
 
-Keeper walks the folder itself, clusters the versions, and gives you a colored verdict table with a one-line reason per cluster. While it works you get a live spinner — one line that updates itself (`hashing files` → `extracting text` → `asking gemma3:1b — 3/9: index.html`) instead of a wall of progress output:
+Keeper walks the folder itself, clusters the versions, and gives you a colored verdict table with a one-line reason per cluster. While it works you get a live spinner — one line that updates itself (`hashing files` → `extracting text` → `asking gemma3:1b — index.html [3/9] · about 40s left`) instead of a wall of progress output. Column widths follow your terminal and every cell wraps — nothing is ever cut off:
 
 ```
- # │ Copies │ KEEP                       │ Decided     │ Why                              │ Losers
- 1 │      3 │ rental_agreement_final_v2( │ ● model     │ The agreement is finalized and   │ rental_agreement.txt +1 more
-   │        │ 1).txt                     │             │ includes a specific allowance…  │
- 4 │      2 │ passport_scan2.pdf         │ ◆ identical │ all copies are byte-identical;  │ passport_scan.pdf
-   │        │                            │             │ kept the newest timestamp       │
+┌───┬────────┬──────────────────────────────────────┬─────────────┬────────────────────────────────┬─────────────────────────┐
+│ # │ Copies │ KEEP                                 │ Decided     │ Why                            │ Losers                   │
+╞═══╪════════╪══════════════════════════════════════╪═════════════╪══════════════════════════════╪═════════════════════════╡
+│ 1 │      3 │ rental_agreement_final_v2(1).txt     │ ● model     │ The agreement is finalized and │ rental_agreement.txt     │
+│   │        │                                      │             │ includes a cat allowance.      │ rental_agreement_… +1   │
+├───┼────────┼──────────────────────────────────────┼─────────────┼────────────────────────────────┼─────────────────────────┤
+│ 4 │      2 │ passport_scan2.pdf                   │ ◆ identical │ all copies are byte-identical; │ passport_scan.pdf        │
+│   │        │                                      │             │ kept the newest timestamp      │                         │
+└───┴────────┴──────────────────────────────────────┴─────────────┴────────────────────────────────┴─────────────────────────┘
 ```
 
 ## How it works
