@@ -1,0 +1,20 @@
+# Byte-compiled / caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Environments
+.venv/
+venv/
+
+# Keeper's own outputs
+_keeper_quarantine/
+keeper-report.md
+
+# Packaging
+dist/
+build/
+*.egg-info/
+
+# Generated demo fixture
+demo/messy-demo/
