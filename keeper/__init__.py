@@ -6,4 +6,4 @@ open-weight model which copy is the real keeper and why, and quarantines the
 losers. Never deletes anything. Runs 100% offline.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.5"

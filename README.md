@@ -11,6 +11,8 @@
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11%2B-4B8BBE" alt="Python 3.11+"></a>
   <a href="https://ollama.com/"><img src="https://img.shields.io/badge/Ollama-Gemma-6cd44b" alt="Ollama + Gemma"></a>
   <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey" alt="Linux, macOS, Windows">
+  <a href="https://github.com/atif-1402/keeper/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow-status/atif-1402/keeper/release.yml?branch=main&label=build" alt="CI status"></a>
+  <a href="https://github.com/atif-1402/keeper/releases"><img src="https://img.shields.io/github/v/release/atif-1402/keeper?include_prereleases&sort=semver" alt="Latest release"></a>
   <a href="https://ko-fi.com/anom538"><img src="https://img.shields.io/badge/Ko--fi-Support%20me-ff5f5f?logo=ko-fi&logoColor=white" alt="Support on Ko-fi"></a>
 </p>
 
@@ -57,8 +59,8 @@ Keeper walks the folder itself, clusters the versions, and gives you a colored v
 flowchart LR
     A[Folder] --> B[scan.py\nhash + metadata]
     B --> C[extract.py\ntxt / md / pdf / docx]
-    C --> D[group.py\nTF-IDF + filename tokens\nunion-find clusters]
-    D --> E[decide.py\nOllama + gemma3:1b\ntemperature 0, JSON out]
+    C --> D[group.py\nTF-IDF + filename tokens\n+ perceptual image hash\nunion-find clusters]
+    D --> E[decide.py\nOllama + gemma3:1b\ntemperature 0, schema-enforced JSON\nlow confidence = second look]
     E --> F{--apply?}
     F -->|no| G[Dry-run report]
     F -->|yes| H[quarantine.py\n_keeper_quarantine/ + manifest]
@@ -67,8 +69,8 @@ flowchart LR
 
 1. **Scan** — walks the folder (skipping `.git`, `node_modules`, its own quarantine), records size, mtime, and sha256.
 2. **Extract** — pulls text from `.txt`, `.md`, `.csv`, `.pdf` (pypdf), `.docx` (python-docx). A scanned PDF with no text layer is honestly flagged instead of treated as empty. Images, video, audio, archives and fonts are recognized as media up front — their bytes are never decoded into garbage "text".
-3. **Group** — byte-identical files cluster by hash; near-duplicates cluster by filename-token overlap (`rental_agreement_final_v2(1)` ≈ `rental_agreement`, browser `(2)` collision suffixes stripped) and TF-IDF cosine over extracted content. Names carrying *different* identity numbers (`S07E02` vs `S07E04`, `Lesson13` vs `Lesson14`) are never merged — TV episodes and numbered lessons stay apart. Pure Python, no ML dependency.
-4. **Decide** — only clusters with readable text get a model call; byte-identical clusters and unreadable ones (zips, images, videos) are settled instantly from metadata, so a low-end machine runs Gemma only when it actually matters. Each call goes to a **local Ollama model** (`gemma3:1b` by default, `--model gemma3:4b` to upgrade), temperature 0, capped output, forced JSON: `{keep, reason, confidence}`. If Ollama is down or the answer is unusable, a transparent rule fallback takes over: readable beats unreadable, newest wins, bigger wins — and a model verdict that contradicts hard evidence (signed/newest) is overruled, not trusted.
+3. **Group** — byte-identical files cluster by hash; visually near-identical images cluster by **perceptual hash** (a 64-bit dHash catches a screenshot saved as PNG and re-exported as JPEG — same picture, different bytes, cross-format); near-duplicates cluster by filename-token overlap (`rental_agreement_final_v2(1)` ≈ `rental_agreement`, browser `(2)` collision suffixes stripped) and TF-IDF cosine over extracted content. Names carrying *different* identity numbers (`S07E02` vs `S07E04`, `Lesson13` vs `Lesson14`) are never merged — TV episodes and numbered lessons stay apart. Cheap checks before expensive ones, pure Python, no ML dependency.
+4. **Decide** — only clusters with readable text get a model call; byte-identical clusters and unreadable ones (zips, videos) are settled instantly from metadata, so a low-end machine runs Gemma only when it actually matters. Each call goes to a **local Ollama model** (`gemma3:1b` by default, `--model gemma3:4b` to upgrade), temperature 0, capped output, and a **server-side JSON schema** — the model structurally cannot answer in any other shape than `{keep, reason, confidence}`. A verdict the model isn't confident about gets **one richer second look** (more copies, longer excerpts); still unsure, Keeper says so and falls back honestly instead of bluffing. If Ollama is down or the answer is unusable, a transparent rule fallback takes over: readable beats unreadable, newest wins, bigger wins — and a model verdict that contradicts hard evidence (signed/newest) is overruled, not trusted.
 5. **Quarantine** — `--apply` moves losers into `_keeper_quarantine/<group>/` with a `manifest.json` and a portable `restore.sh`. `--restore` puts every file back where it came from.
 
 ## Safety model
@@ -131,10 +133,13 @@ Ollama is not running — falling back to the rule engine.
 | `keeper <folder> --model gemma3:4b` | Use a different (bigger) open-weight model |
 | `keeper <folder> --no-model` | Rule engine only — never call a model |
 | `keeper <folder> --model-only` | Model required — error out if Ollama is down instead of falling back |
+| `keeper <folder> --json` | Machine-readable verdicts on stdout (one JSON document — pipe it into `jq`) |
 | `keeper <folder> --no-eta` | Hide the elapsed/remaining time in the spinner |
 | `keeper <folder> --report out.md` | Also write a Markdown report |
 
-While it works, the spinner shows a live clock and — once it has measured your machine's speed — a countdown: `asking gemma3:1b — index.html [3/9] · about 40s left`. A slow box honestly shows minutes; a fast one shows seconds. No fixed timings, just measured throughput.
+The dry-run summary ends with the payoff number: `8 loser(s) would be quarantined · 37.3 KB of duplicate clutter`. Every run tells you how much junk you're sitting on.
+
+While it works, the spinner shows a live clock and — once it has measured your machine's speed — a countdown: `asking gemma3:1b — index.html [3/9] · about 40s left`. A slow box honestly shows minutes; a fast one shows seconds. If a verdict needs a second look, the countdown grows by one instead of lying. No fixed timings, just measured throughput.
 
 ## Why open innovation matters here
 
@@ -147,7 +152,7 @@ uv sync
 uv run pytest -q
 ```
 
-Tests cover extraction (including the no-text-layer flag), clustering, decision fallbacks, the quarantine round-trip, and CLI behaviour.
+Tests cover extraction (including the no-text-layer flag), clustering (including perceptual image matching), decision fallbacks and escalation, the quarantine round-trip, and CLI behaviour (including `--json`).
 
 ## License
 

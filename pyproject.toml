@@ -1,6 +1,6 @@
 [project]
 name = "keeper-ai"
-version = "0.1.0"
+version = "0.1.5"
 description = "Keeper — finds version-clone files in a folder and tells you which one to keep. 100% offline, powered by an open-weight model."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -9,6 +9,7 @@ dependencies = [
     "pypdf>=4.0",
     "python-docx>=1.1",
     "rich>=13.7",
+    "pillow>=10.0",
 ]
 
 [project.scripts]
