@@ -5,11 +5,13 @@
     keeper <folder> --restore     put everything back
     keeper <folder> --model X     use a different Ollama model
     keeper <folder> --report F    also write a Markdown report
+    keeper <folder> --json        machine-readable verdicts on stdout
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import threading
 import time
@@ -24,7 +26,7 @@ from .decide import DEFAULT_MODEL, decide, model_available, would_use_model
 from .extract import extract_text
 from .group import cluster
 from .quarantine import QDIR, GroupDecision, apply_quarantine, restore
-from .report import markdown_report, render_decisions
+from .report import fmt_bytes, markdown_report, render_decisions
 from .scan import scan
 
 console = Console()
@@ -47,11 +49,15 @@ class _Phase:
 
     On a terminal it animates in place and erases itself when done; when the
     output is piped (tests, demos, logs) each phase prints one plain line.
+    ``stream`` redirects every phase line (spinner included) — used by
+    ``--json`` so stdout carries only the JSON document.
     """
 
-    def __init__(self, text: str, *, show_time: bool = True) -> None:
+    def __init__(self, text: str, *, show_time: bool = True,
+                 stream=None) -> None:
         self.text = text
         self.show_time = show_time
+        self.stream = stream
         self.total: int | None = None
         self.done = 0
         self.started = time.monotonic()
@@ -76,28 +82,32 @@ class _Phase:
     def set(self, text: str, *, total: int | None = None, done: int = 0) -> None:
         self.text, self.total, self.done = text, total, done
         if self._live is None:  # piped: announce each phase once
-            print(f"  {self._label()} ...", flush=True)
+            print(f"  {self._label()} ...", file=self.stream, flush=True)
 
     def bump(self, n: int = 1) -> None:
         self.done += n
         if self._live is None and self.total and self.done < self.total \
                 and self.done % 25 == 0:
-            print(f"  {self._label()} ...", flush=True)
+            print(f"  {self._label()} ...", file=self.stream, flush=True)
 
     def __enter__(self) -> "_Phase":
-        if console.is_terminal:
+        term = console.is_terminal or (self.stream is not None and
+                                       getattr(self.stream, "isatty", lambda: False)())
+        if term:
             # One Spinner instance for the whole phase: its animation clock
             # keeps running while only the text changes, so the frames turn
             # smoothly instead of resetting every tick.
+            live_console = (console if self.stream is None
+                            else Console(file=self.stream))
             self._spinner = Spinner("dots", self._label())
-            self._live = Live(self._spinner, console=console, transient=True,
+            self._live = Live(self._spinner, console=live_console, transient=True,
                               refresh_per_second=10)
             self._live.start()
             self._stop = threading.Event()
             self._thread = threading.Thread(target=self._tick, daemon=True)
             self._thread.start()
         else:
-            print(f"  {self._label()} ...", flush=True)
+            print(f"  {self._label()} ...", file=self.stream, flush=True)
         return self
 
     def _tick(self) -> None:
@@ -135,6 +145,9 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
                              "(default: model when available, rules otherwise)")
     parser.add_argument("--no-eta", action="store_true",
                         help="hide the elapsed/remaining time in the spinner")
+    parser.add_argument("--json", action="store_true",
+                        help="machine-readable output: one JSON document on "
+                             "stdout (progress goes to stderr)")
     parser.add_argument("--report", metavar="FILE",
                         help="also write a Markdown report to FILE")
     parser.add_argument("--version", action="version", version=f"keeper {__version__}")
@@ -143,6 +156,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
+    as_json = args.json
+    # In JSON mode every progress line goes to stderr; stdout carries only
+    # the final JSON document (parseable even when piped into jq).
+    def say(msg: str = "") -> None:
+        print(msg, file=sys.stderr if as_json else sys.stdout, flush=True)
+    phase_stream = sys.stderr if as_json else None
 
     if not args.path:
         print("keeper: give me a folder to scan (e.g. `keeper ~/Downloads`)", file=sys.stderr)
@@ -155,6 +174,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.restore:
         restored, error = restore(root)
+        if as_json:
+            print(json.dumps({
+                "restored": restored,
+                "error": error,
+            }, indent=2))
+            return 1 if (error and restored == 0) else 0
         if error and restored == 0:
             print(f"keeper: {error}", file=sys.stderr)
             return 1
@@ -169,9 +194,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     show_time = not args.no_eta
-    print(f"Scanning {root} ...", flush=True)
+    say(f"Scanning {root} ...")
 
-    with _Phase("hashing files", show_time=show_time) as phase:
+    with _Phase("hashing files", show_time=show_time,
+                stream=phase_stream) as phase:
         facts = scan(root)
         phase.set("extracting text (txt/md/csv/pdf/docx)",
                   total=len(facts), done=0)
@@ -183,8 +209,8 @@ def main(argv: list[str] | None = None) -> int:
 
     readable = sum(1 for f in facts if f.readable)
     flagged = sum(1 for f in facts if f.status == "no_text_layer")
-    print(f"  {len(facts)} files · {readable} readable · {flagged} no text layer "
-          f"· {len(clusters)} duplicate cluster(s)\n", flush=True)
+    say(f"  {len(facts)} files · {readable} readable · {flagged} no text layer "
+        f"· {len(clusters)} duplicate cluster(s)\n")
 
     use_model = not args.no_model
     worthy = sum(1 for g in clusters if would_use_model(g)) if use_model else 0
@@ -193,50 +219,98 @@ def main(argv: list[str] | None = None) -> int:
             print("keeper: --model-only, but Ollama is not running — "
                   "start it with `ollama serve`", file=sys.stderr)
             return 1
-        print("  Ollama is not running — falling back to the rule engine.")
-        print("  (Start it with `ollama serve` to get model verdicts.)\n")
+        say("  Ollama is not running — falling back to the rule engine.")
+        say("  (Start it with `ollama serve` to get model verdicts.)\n")
         use_model, worthy = False, 0
 
     decisions: list[GroupDecision] = []
     asked = 0
     if clusters:
         label = (f"asking {args.model}" if worthy else "deciding from metadata")
-        with _Phase(label, show_time=show_time) as phase:
+        with _Phase(label, show_time=show_time, stream=phase_stream) as phase:
             phase.total = worthy or None
             for group in clusters:
                 needs_ask = worthy and would_use_model(group)
                 if needs_ask:
                     asked += 1
+                    # total=phase.total (not worthy): an escalation may have
+                    # grown the countdown already — never shrink it back.
                     phase.set(f"asking {args.model} — {group[0].name}",
-                              total=worthy, done=asked - 1)
-                decisions.append(GroupDecision(
-                    files=group,
-                    decision=decide(group, model=args.model, use_model=use_model),
-                ))
+                              total=phase.total or worthy, done=asked - 1)
+                group_decision = decide(group, model=args.model,
+                                        use_model=use_model)
+                if group_decision.escalated:
+                    # A second, richer model look happened: the honest
+                    # countdown grows by one so the ETA stays truthful.
+                    phase.total = (phase.total or worthy) + 1
+                decisions.append(GroupDecision(files=group,
+                                               decision=group_decision))
                 if needs_ask:
                     phase.bump()
-        print(flush=True)
+        say()
 
-    render_decisions(decisions)
+    clutter = sum(f.size for g in decisions for f in g.losers)
+    loser_total = sum(len(g.losers) for g in decisions)
+
+    if as_json:
+        payload = {
+            "keeper": __version__,
+            "root": str(root),
+            "model": {"requested": args.model,
+                      "used": bool(use_model and asked),
+                      "calls": asked},
+            "files": len(facts),
+            "readable": readable,
+            "no_text_layer": flagged,
+            "clusters": len(clusters),
+            "losers": loser_total,
+            "clutter_bytes": clutter,
+            "clutter": fmt_bytes(clutter),
+            "applied": False,
+            "decisions": [
+                {
+                    "cluster": i,
+                    "copies": len(g.files),
+                    "keep": g.decision.keep.rel,
+                    "reason": g.decision.reason,
+                    "confidence": round(g.decision.confidence, 2),
+                    "method": g.decision.method,
+                    "escalated": g.decision.escalated,
+                    "losers": [f.rel for f in g.losers],
+                    "loser_bytes": sum(f.size for f in g.losers),
+                }
+                for i, g in enumerate(decisions, start=1)
+            ],
+        }
+    else:
+        render_decisions(decisions)
 
     if args.report:
         Path(args.report).write_text(markdown_report(decisions, str(root)), encoding="utf-8")
-        print(f"Report written to {args.report}")
+        say(f"Report written to {args.report}")
 
     if not decisions:
+        if as_json:
+            print(json.dumps(payload, indent=2))
         return 0
 
     if args.apply:
         manifest = apply_quarantine(root, decisions)
         if manifest:
-            loser_count = sum(len(g.losers) for g in decisions)
-            print(f"Quarantined {loser_count} file(s) -> {root / QDIR}/")
-            print(f"  manifest: {manifest}")
-            print(f"  undo with: keeper {args.path} --restore   (or {root / QDIR / 'restore.sh'})")
-    else:
-        loser_count = sum(len(g.losers) for g in decisions)
-        print(f"DRY RUN — nothing was moved ({loser_count} loser(s) would be quarantined).")
-        print(f"Run again with --apply to quarantine them, or --restore to undo.")
+            if as_json:
+                payload["applied"] = True
+                payload["quarantine"] = str(root / QDIR)
+            else:
+                print(f"Quarantined {loser_total} file(s) -> {root / QDIR}/")
+                print(f"  manifest: {manifest}")
+                print(f"  undo with: keeper {args.path} --restore   (or {root / QDIR / 'restore.sh'})")
+    elif not as_json:
+        say(f"DRY RUN — nothing was moved ({loser_total} loser(s) would be "
+            f"quarantined · {fmt_bytes(clutter)} of duplicate clutter).")
+        say("Run again with --apply to quarantine them, or --restore to undo.")
+
+    if as_json:
+        print(json.dumps(payload, indent=2))
 
     return 0
 

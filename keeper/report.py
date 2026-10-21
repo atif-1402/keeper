@@ -22,6 +22,16 @@ METHOD_LABEL = {
     "rule": "fallback rule",
 }
 
+
+def fmt_bytes(n: int) -> str:
+    """Human byte count: 912 B, 4.2 KB, 1.3 MB, 2.3 GB."""
+    size = float(n)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if size < 1024 or unit == "TB":
+            return f"{int(size)} B" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
+
 # The house style: light outer frame, heavy header rule (╞═╪╡), solid grid.
 KEEPER_BOX = box.Box("""\
 ┌─┬┐
@@ -102,12 +112,14 @@ def render_decisions(groups: list[GroupDecision]) -> None:
 
 
 def markdown_report(groups: list[GroupDecision], root: str) -> str:
+    clutter = sum(f.size for g in groups for f in g.losers)
     lines = [
         "# Keeper report",
         "",
         f"Folder: `{root}`",
         "",
-        f"Found **{len(groups)}** duplicate cluster(s).",
+        f"Found **{len(groups)}** duplicate cluster(s) · "
+        f"**{fmt_bytes(clutter)}** of duplicate clutter identified.",
         "",
     ]
     if not groups:

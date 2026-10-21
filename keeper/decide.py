@@ -3,7 +3,9 @@
 Order of preference:
 1. Byte-identical copies  -> no model needed, newest timestamp wins.
 2. A local model via Ollama (open-weight, offline) reads the metadata and a
-   text excerpt of each copy and answers with JSON: keep / reason / confidence.
+   text excerpt of each copy and answers with a schema-enforced JSON verdict:
+   keep / reason / confidence. A verdict the model isn't confident about
+   gets one richer second look; still unsure, Keeper falls back honestly.
 3. Rule fallback (model down or answer unusable): prefer files Keeper could
    actually read, then newest, then biggest. Safe, boring, explainable.
 """
@@ -21,6 +23,26 @@ from .scan import FileFact
 
 DEFAULT_MODEL = os.environ.get("KEEPER_MODEL", "gemma3:1b")
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+
+# Server-side JSON schema for verdicts (Ollama structured outputs): the model
+# physically cannot answer in any other shape. Old Ollama (< 0.5) rejects
+# schema objects in `format` — _ask_model degrades to the loose "json" form
+# on a 400, and to the rule engine if even that fails.
+VERDICT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "keep": {"type": "string"},
+        "reason": {"type": "string"},
+        "confidence": {"type": "number"},
+    },
+    "required": ["keep", "reason", "confidence"],
+}
+
+# A verdict below this confidence gets one richer second look; still unsure
+# after that, and Keeper says so instead of bluffing.
+ESCALATE_BELOW = 0.6
+RICH_EXCERPT_CHARS = 900   # richer pass shows more text per copy...
+RICH_EXCERPT_CAP = 5       # ...and more copies
 
 SYSTEM_PROMPT = (
     "You are Keeper, a careful file assistant. You are shown several copies of "
@@ -70,6 +92,7 @@ class Decision:
     reason: str
     confidence: float
     method: str  # identical | model | rule
+    escalated: bool = False  # model was unsure; a richer second look happened
 
 
 def model_available(host: str = OLLAMA_HOST) -> bool:
@@ -106,7 +129,8 @@ def _excerpts_for(group: list[FileFact], cap: int = 3) -> list[FileFact]:
     return sorted(picked, key=group.index)
 
 
-def _build_user_prompt(group: list[FileFact]) -> str:
+def _build_user_prompt(group: list[FileFact], *, excerpt_chars: int = 600,
+                       excerpt_cap: int = 3, revisit: bool = False) -> str:
     # Compact decision table FIRST — tiny models scan this reliably. Heavy
     # metadata (dates) in the table rows makes gemma3:1b lose the plot, so we
     # pre-compute the decision signals and keep rows terse. Evidence follows.
@@ -120,32 +144,47 @@ def _build_user_prompt(group: list[FileFact]) -> str:
     ]
 
     excerpts = "\n\n".join(
-        f"--- {fact.name} ---\n{_excerpt(fact.text)}"
-        for fact in _excerpts_for(group)
+        f"--- {fact.name} ---\n{_excerpt(fact.text, excerpt_chars)}"
+        for fact in _excerpts_for(group, excerpt_cap)
     )
 
-    return "\n".join(
-        [
-            "DECISION TABLE (read this first):",
-            *rows,
-            "Rule: prefer signed=YES, then newest=YES.",
-            "Excerpts:",
-            excerpts,
-            '\n\nReply with ONLY the JSON object: {"keep": "<exact filename>", '
-            '"reason": "<one sentence>", "confidence": <0.0-1.0>}',
-        ]
+    lines = [
+        "DECISION TABLE (read this first):",
+        *rows,
+        "Rule: prefer signed=YES, then newest=YES.",
+        "Excerpts:",
+        excerpts,
+    ]
+    if revisit:
+        lines.append(
+            "\nYour previous answer had LOW confidence. Look again carefully "
+            "at the evidence above before deciding."
+        )
+    lines.append(
+        '\n\nReply with ONLY the JSON object: {"keep": "<exact filename>", '
+        '"reason": "<one sentence>", "confidence": <0.0-1.0>}'
     )
+    return "\n".join(lines)
 
 
-def _ask_model(group: list[FileFact], model: str, host: str = OLLAMA_HOST) -> dict:
+def _ask_model(group: list[FileFact], model: str, host: str = OLLAMA_HOST,
+               *, revisit: bool = False, schema: bool = True) -> dict:
     payload = {
         "model": model,
         "stream": False,
-        "format": "json",
-        "options": {"temperature": 0.0, "num_predict": 80},
+        # Schema-enforced verdict: structurally cannot freestyle. Old Ollama
+        # (< 0.5) rejects schema objects with a 400 — retry once with the
+        # loose "json" string form before giving up to the rules.
+        "format": VERDICT_SCHEMA if schema else "json",
+        "options": {"temperature": 0.0, "num_predict": 120 if revisit else 80},
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": _build_user_prompt(group)},
+            {"role": "user", "content": _build_user_prompt(
+                group,
+                excerpt_chars=RICH_EXCERPT_CHARS if revisit else 600,
+                excerpt_cap=RICH_EXCERPT_CAP if revisit else 3,
+                revisit=revisit,
+            )},
         ],
     }
     request = urllib.request.Request(
@@ -153,8 +192,13 @@ def _ask_model(group: list[FileFact], model: str, host: str = OLLAMA_HOST) -> di
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(request, timeout=180) as response:
-        body = json.load(response)
+    try:
+        with urllib.request.urlopen(request, timeout=180) as response:
+            body = json.load(response)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 400 and schema:
+            return _ask_model(group, model, host, revisit=revisit, schema=False)
+        raise
     content = body["message"]["content"]
     match = re.search(r"\{.*\}", content, re.DOTALL)
     if not match:
@@ -174,6 +218,28 @@ def _rule_decision(group: list[FileFact]) -> Decision:
         pool, why = group, "no readable text; kept the newest copy"
     keep = max(pool, key=lambda f: (f.mtime, f.size))
     return Decision(keep=keep, reason=why, confidence=0.6, method="rule")
+
+
+def _unsure_rule_decision(group: list[FileFact]) -> Decision:
+    """The model had its second look and still wasn't sure — say so, then
+    let the transparent rules decide instead of trusting a coin flip."""
+    dec = _rule_decision(group)
+    dec.reason = f"the model was unsure after two looks; {dec.reason}"
+    dec.confidence = 0.5
+    dec.escalated = True
+    return dec
+
+
+def _pick_from_answer(group: list[FileFact], answer: dict) -> FileFact | None:
+    """Match the model's `keep` field to a real file (exact, then fuzzy)."""
+    wanted = str(answer.get("keep", "")).strip().strip('"').lower()
+    match = next((f for f in group if f.name.lower() == wanted), None)
+    if match is None:
+        # Model may have echoed a number or a near-name; take best fuzzy hit.
+        match = next(
+            (f for f in group if wanted and wanted in f.name.lower()), None
+        )
+    return match
 
 
 def would_use_model(group: list[FileFact]) -> bool:
@@ -199,9 +265,18 @@ def decide(group: list[FileFact], *, model: str = DEFAULT_MODEL,
     if not any(f.readable for f in group):
         # Nothing readable (zips, images, videos): a model would only guess
         # from filenames — the metadata rule already knows the answer.
-        keep = max(group, key=lambda f: (f.mtime, f.size))
+        newest = max(group, key=lambda f: (f.mtime, f.size))
+        if any(f.visual for f in group):
+            # Clustered by perceptual hash: these really are the same picture.
+            return Decision(
+                keep=newest,
+                reason="copies are visually near-identical (perceptual hash); "
+                       "kept the newest",
+                confidence=0.7,
+                method="rule",
+            )
         return Decision(
-            keep=keep,
+            keep=newest,
             reason="no readable text in this cluster; kept the newest copy",
             confidence=0.5,
             method="rule",
@@ -212,13 +287,7 @@ def decide(group: list[FileFact], *, model: str = DEFAULT_MODEL,
 
     try:
         answer = _ask_model(group, model, host)
-        wanted = str(answer.get("keep", "")).strip().strip('"').lower()
-        match = next((f for f in group if f.name.lower() == wanted), None)
-        if match is None:
-            # Model may have echoed a number or a near-name; take best fuzzy hit.
-            match = next(
-                (f for f in group if wanted and wanted in f.name.lower()), None
-            )
+        match = _pick_from_answer(group, answer)
         if match is None:
             return _rule_decision(group)
 
@@ -234,11 +303,29 @@ def decide(group: list[FileFact], *, model: str = DEFAULT_MODEL,
                 method="rule",
             )
 
-        return Decision(
-            keep=match,
-            reason=str(answer.get("reason", "model picked this one")).strip(),
-            confidence=max(0.0, min(1.0, float(answer.get("confidence", 0.5)))),
-            method="model",
-        )
+        confidence = max(0.0, min(1.0, float(answer.get("confidence", 0.5))))
+        if confidence >= ESCALATE_BELOW:
+            return Decision(
+                keep=match,
+                reason=str(answer.get("reason", "model picked this one")).strip(),
+                confidence=confidence,
+                method="model",
+            )
+
+        # Low confidence: one richer second look — more copies, longer
+        # excerpts, explicit "you were unsure" nudge. Confident now? Take it.
+        answer2 = _ask_model(group, model, host, revisit=True)
+        match2 = _pick_from_answer(group, answer2)
+        if match2 is not None and _verdict_consistent(match2, group):
+            confidence2 = max(0.0, min(1.0, float(answer2.get("confidence", 0.5))))
+            if confidence2 >= ESCALATE_BELOW:
+                return Decision(
+                    keep=match2,
+                    reason=str(answer2.get("reason", "second look")).strip(),
+                    confidence=confidence2,
+                    method="model",
+                    escalated=True,
+                )
+        return _unsure_rule_decision(group)
     except Exception:  # noqa: BLE001 - model trouble must never crash a scan
         return _rule_decision(group)

@@ -10,6 +10,7 @@ uv run --with pyinstaller pyinstaller \
     --paths . \
     --collect-submodules pypdf \
     --collect-submodules docx \
+    --collect-submodules PIL \
     packaging/entry.py
 
 echo

@@ -1,5 +1,7 @@
 """End-to-end CLI behaviour: dry-run default, apply, restore, exit codes."""
 
+import json
+
 from keeper.cli import main
 
 
@@ -70,3 +72,62 @@ def test_fmt_duration():
     assert _fmt_duration(75) == "1m15s"
     assert _fmt_duration(3600) == "1h00m"
     assert _fmt_duration(3700) == "1h01m"
+
+
+# --- --json machine-readable output -------------------------------------------
+
+def test_json_output_is_pure_json(messy_dir, capsys):
+    assert main([str(messy_dir), "--no-model", "--json"]) == 0
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)  # stdout must be ONLY the JSON document
+    assert data["keeper"]
+    assert data["files"] > 0
+    assert data["clusters"] >= 1
+    assert data["clutter_bytes"] > 0
+    assert data["applied"] is False
+    first = data["decisions"][0]
+    for key in ("cluster", "copies", "keep", "reason", "confidence",
+                "method", "escalated", "losers", "loser_bytes"):
+        assert key in first
+
+
+def test_json_with_apply_reports_quarantine(messy_dir, capsys):
+    assert main([str(messy_dir), "--apply", "--no-model", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["applied"] is True
+    assert "_keeper_quarantine" in data["quarantine"]
+    # ...and restore still works after a JSON apply.
+    assert main([str(messy_dir), "--restore"]) == 0
+
+
+def test_json_restore_reports_count(messy_dir, capsys):
+    assert main([str(messy_dir), "--apply", "--no-model"]) == 0
+    capsys.readouterr()
+    assert main([str(messy_dir), "--restore", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["restored"] > 0
+    assert data["error"] is None
+
+
+# --- clutter report -----------------------------------------------------------
+
+def test_dry_run_names_the_clutter(messy_dir, capsys):
+    assert main([str(messy_dir), "--no-model"]) == 0
+    out = capsys.readouterr().out
+    assert "duplicate clutter" in out
+
+
+def test_fmt_bytes_units():
+    from keeper.report import fmt_bytes
+
+    assert fmt_bytes(0) == "0 B"
+    assert fmt_bytes(912) == "912 B"
+    assert fmt_bytes(1536) == "1.5 KB"
+    assert fmt_bytes(2362232012) == "2.2 GB"
+    assert fmt_bytes(1024 ** 4) == "1.0 TB"
+
+
+def test_markdown_report_mentions_clutter(messy_dir, tmp_path):
+    report = tmp_path / "r.md"
+    assert main([str(messy_dir), "--no-model", "--report", str(report)]) == 0
+    assert "duplicate clutter" in report.read_text()

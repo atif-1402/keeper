@@ -37,6 +37,7 @@ class FileFact:
     text: str = ""
     status: str = "ok"  # ok | binary | no_text_layer | error
     error: str | None = None
+    visual: bool = False  # grouped via perceptual image hash (see visual.py)
 
     @property
     def readable(self) -> bool:

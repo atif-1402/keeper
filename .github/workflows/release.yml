@@ -30,13 +30,14 @@ jobs:
           python-version: "3.12"
 
       - name: Install build dependencies
-        run: pip install pyinstaller pypdf python-docx rich
+        run: pip install pyinstaller pypdf python-docx rich pillow
 
       - name: Build standalone binary
         shell: bash
         run: |
           pyinstaller --onefile --name keeper --paths . \
             --collect-submodules pypdf --collect-submodules docx \
+            --collect-submodules PIL \
             packaging/entry.py
 
       - name: Name the asset

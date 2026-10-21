@@ -1,5 +1,8 @@
 """Decision logic: identical rule, model path, and the safe rule fallback."""
 
+import json
+import urllib.error
+
 from keeper.decide import decide
 from keeper.extract import extract_text
 from keeper.scan import scan
@@ -95,3 +98,150 @@ def test_model_is_skipped_when_nothing_is_readable(tmp_path, monkeypatch):
     dec = decide(groups[0], use_model=True)
     assert dec.method == "rule"
     assert "no readable text" in dec.reason
+
+
+# --- schema-enforced verdicts -------------------------------------------------
+
+class _FakeResponse:
+    def __init__(self, data):
+        self._data = json.dumps(data).encode()
+
+    def read(self):
+        return self._data
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+
+def _answer(keep, reason="picks this one", confidence=0.9):
+    return {"message": {"content": json.dumps(
+        {"keep": keep, "reason": reason, "confidence": confidence}
+    )}}
+
+
+def test_payload_carries_verdict_schema(messy_dir, monkeypatch):
+    from keeper import decide as decide_mod
+
+    captured = {}
+
+    def fake_urlopen(request, timeout=None):
+        captured["payload"] = json.loads(request.data)
+        group_names = _cluster_named(messy_dir, "rental")
+        newest = max(group_names, key=lambda f: f.mtime)
+        return _FakeResponse(_answer(newest.name))
+
+    monkeypatch.setattr("keeper.decide.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("keeper.decide.model_available", lambda *a, **k: True)
+    dec = decide(_cluster_named(messy_dir, "rental"))
+    assert captured["payload"]["format"] == decide_mod.VERDICT_SCHEMA
+    assert captured["payload"]["format"]["required"] == ["keep", "reason", "confidence"]
+    assert dec.method == "model"
+
+
+def test_old_ollama_schema_rejection_retries_with_loose_json(messy_dir, monkeypatch):
+    """Ollama < 0.5 answers schema objects with a 400; Keeper must retry once
+    with the string form instead of giving up."""
+    from keeper.decide import VERDICT_SCHEMA
+
+    calls = []
+
+    def fake_urlopen(request, timeout=None):
+        payload = json.loads(request.data)
+        calls.append(payload["format"])
+        if isinstance(payload["format"], dict):
+            raise urllib.error.HTTPError(
+                "http://localhost:11434/api/chat", 400, "Bad Request", None, None
+            )
+        group = _cluster_named(messy_dir, "rental")
+        newest = max(group, key=lambda f: f.mtime)
+        return _FakeResponse(_answer(newest.name))
+
+    monkeypatch.setattr("keeper.decide.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("keeper.decide.model_available", lambda *a, **k: True)
+    dec = decide(_cluster_named(messy_dir, "rental"))
+    assert calls == [VERDICT_SCHEMA, "json"]
+    assert dec.method == "model"
+
+
+def test_reordered_json_keys_still_parse(messy_dir, monkeypatch):
+    """The Ollama chat path may alphabetically re-sort schema keys — parsing
+    is by key lookup, so any order works."""
+    group = _cluster_named(messy_dir, "rental")
+    newest = max(group, key=lambda f: f.mtime)
+    # Alphabetical order: confidence, keep, reason — not our declared order.
+    content = ('{"confidence": 0.91, "keep": "%s", '
+               '"reason": "newest signed copy"}' % newest.name)
+    monkeypatch.setattr("keeper.decide.model_available", lambda *a, **k: True)
+    monkeypatch.setattr(
+        "keeper.decide._ask_model",
+        lambda *a, **k: json.loads(content),
+    )
+    dec = decide(group)
+    assert dec.method == "model"
+    assert dec.keep is newest
+
+
+# --- confidence escalation ----------------------------------------------------
+
+def _low_then_high(keep_name):
+    answers = [
+        {"keep": keep_name, "reason": "unsure maybe", "confidence": 0.35},
+        {"keep": keep_name, "reason": "checked again, this one", "confidence": 0.85},
+    ]
+    return answers
+
+
+def test_low_confidence_triggers_second_look(messy_dir, monkeypatch):
+    group = _cluster_named(messy_dir, "rental")
+    newest = max(group, key=lambda f: f.mtime)
+    calls = []
+    answers = _low_then_high(newest.name)
+
+    def fake_ask(_group, _model, *_a, **kw):
+        calls.append(kw)
+        return answers[len(calls) - 1]
+
+    monkeypatch.setattr("keeper.decide.model_available", lambda *a, **k: True)
+    monkeypatch.setattr("keeper.decide._ask_model", fake_ask)
+    dec = decide(group)
+    assert len(calls) == 2
+    assert calls[1].get("revisit") is True, "second look must be the rich one"
+    assert dec.method == "model"
+    assert dec.escalated is True
+    assert dec.confidence >= 0.6
+
+
+def test_two_low_passes_fall_back_to_rules(messy_dir, monkeypatch):
+    group = _cluster_named(messy_dir, "rental")
+    newest = max(group, key=lambda f: f.mtime)
+
+    def fake_ask(*_a, **_k):
+        return {"keep": newest.name, "reason": "hmm", "confidence": 0.3}
+
+    monkeypatch.setattr("keeper.decide.model_available", lambda *a, **k: True)
+    monkeypatch.setattr("keeper.decide._ask_model", fake_ask)
+    dec = decide(group)
+    assert dec.method == "rule"
+    assert "unsure after two looks" in dec.reason
+    assert dec.escalated is True
+    assert dec.keep.readable  # rules still pick the sensible keeper
+
+
+def test_confident_answer_never_escalates(messy_dir, monkeypatch):
+    group = _cluster_named(messy_dir, "rental")
+    newest = max(group, key=lambda f: f.mtime)
+    calls = []
+
+    def fake_ask(*_a, **_k):
+        calls.append(1)
+        return {"keep": newest.name, "reason": "clear", "confidence": 0.9}
+
+    monkeypatch.setattr("keeper.decide.model_available", lambda *a, **k: True)
+    monkeypatch.setattr("keeper.decide._ask_model", fake_ask)
+    dec = decide(group)
+    assert len(calls) == 1
+    assert dec.escalated is False
+    assert dec.method == "model"

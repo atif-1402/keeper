@@ -1,9 +1,12 @@
 """Group files that are versions of the same thing.
 
-Two passes:
+Two passes (three signals):
 
 1. **Identical copies** — same sha256 = same bytes. Trivial cluster.
-2. **Near-duplicates** — same *thing*, different content: filename-token
+2. **Visually near-identical images** — perceptual dHash catches the same
+   picture re-saved as PNG/JPEG (screenshots, re-exports) — different
+   bytes, no text, same image.
+3. **Near-duplicates** — same *thing*, different content: filename-token
    overlap ("rental_agreement_final_v2(1).pdf" vs "rental_agreement.pdf")
    or content similarity (TF-IDF cosine over extracted text, same format
    only — a stylesheet is never a version of a page).
@@ -21,6 +24,7 @@ from collections import defaultdict
 from itertools import combinations
 
 from .scan import FileFact
+from .visual import visual_pairs
 
 # Tokens that describe *file management*, not the document itself.
 # Stripping them gives the "same stem" signal: rental_agreement_final_v2(1)
@@ -132,6 +136,15 @@ def cluster(files: list[FileFact]) -> list[list[FileFact]]:
         for i in indices[1:]:
             uf.union(indices[0], i)
 
+    # Pass 1b: visually near-identical images (perceptual dHash). The same
+    # screenshot saved as PNG and re-exported as JPEG is different bytes
+    # with no readable text at all — only a visual fingerprint catches it.
+    visual: set[int] = set()
+    for a, b in visual_pairs(files):
+        if uf.find(a) != uf.find(b):  # hash-identical pairs already settled
+            uf.union(a, b)
+        visual.update((a, b))
+
     # Pass 2: near-duplicates (name + content signals).
     tok_sets = [tokens_of(f.name) for f in files]
     norm_stems = [norm_stem(f.name) for f in files]
@@ -197,6 +210,8 @@ def cluster(files: list[FileFact]) -> list[list[FileFact]]:
 
     groups: dict[int, list[FileFact]] = defaultdict(list)
     for i, fact in enumerate(files):
+        if i in visual:
+            fact.visual = True
         groups[uf.find(i)].append(fact)
 
     clusters = [members for members in groups.values() if len(members) >= 2]
