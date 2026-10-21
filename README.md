@@ -11,7 +11,7 @@
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11%2B-4B8BBE" alt="Python 3.11+"></a>
   <a href="https://ollama.com/"><img src="https://img.shields.io/badge/Ollama-Gemma-6cd44b" alt="Ollama + Gemma"></a>
   <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey" alt="Linux, macOS, Windows">
-  <a href="https://github.com/atif-1402/keeper/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow-status/atif-1402/keeper/release.yml?branch=main&label=build" alt="CI status"></a>
+  <a href="https://github.com/atif-1402/keeper/actions/workflows/release.yml"><img src="https://github.com/atif-1402/keeper/actions/workflows/release.yml/badge.svg" alt="CI status"></a>
   <a href="https://github.com/atif-1402/keeper/releases"><img src="https://img.shields.io/github/v/release/atif-1402/keeper?include_prereleases&sort=semver" alt="Latest release"></a>
   <a href="https://ko-fi.com/anom538"><img src="https://img.shields.io/badge/Ko--fi-Support%20me-ff5f5f?logo=ko-fi&logoColor=white" alt="Support on Ko-fi"></a>
 </p>
