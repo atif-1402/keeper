@@ -97,10 +97,15 @@ class KeeperApp:
         root.title(f"Keeper {__version__}")
         root.geometry("940x720")
         root.minsize(760, 560)
-        # Force a real arrow cursor. On XWayland/Wayland a window that doesn't
-        # ask for a cursor explicitly can be handed a blank one, which makes
-        # the pointer seem to vanish over the app.
-        root.configure(cursor="arrow")
+        # On X11/Wayland a window that doesn't request a cursor explicitly can
+        # be handed a blank one, which makes the pointer seem to vanish over
+        # the app. Request the standard pointer by name. Use "left_ptr" (the
+        # same glyph the desktop uses), NOT "arrow" — Tk's "arrow" maps to a
+        # different X11 glyph (top_left_arrow) that renders mirrored on many
+        # cursor themes. Windows/macOS render the correct pointer by default,
+        # so we leave those alone.
+        if sys.platform.startswith("linux"):
+            root.configure(cursor="left_ptr")
 
         self._setup_fonts()
         self._build_widgets()
