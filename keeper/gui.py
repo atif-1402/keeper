@@ -40,14 +40,18 @@ MODE_CHOICES = [
 THEMES = {
     "dark": {
         "root": "#1c1c1e", "surface": "#2a2a2c", "raise": "#3a3a3c",
+        "hover": "#48484a", "press": "#2a2a2c",
         "text": "#f2f2f7", "muted": "#8e8e93", "accent": "#0a84ff",
+        "accent_hover": "#3395ff", "accent_press": "#0060df",
         "accent_fg": "#ffffff", "green": "#30d158", "yellow": "#ffd60a",
         "red": "#ff453a", "row": "#242426", "row_alt": "#2c2c2e",
         "sel": "#0a84ff", "entry": "#1c1c1e", "border": "#3a3a3c",
     },
     "light": {
         "root": "#f2f2f7", "surface": "#ffffff", "raise": "#e5e5ea",
+        "hover": "#d8d8dc", "press": "#c7c7cc",
         "text": "#1c1c1e", "muted": "#6c6c70", "accent": "#007aff",
+        "accent_hover": "#3395ff", "accent_press": "#0060df",
         "accent_fg": "#ffffff", "green": "#248a3d", "yellow": "#b8860b",
         "red": "#d70015", "row": "#ffffff", "row_alt": "#f7f7fa",
         "sel": "#007aff", "entry": "#ffffff", "border": "#d1d1d6",
@@ -125,7 +129,7 @@ class KeeperApp:
         self.title_lbl = tk.Label(top, text="Keeper", font=("TkDefaultFont", 20, "bold"), bg=p["root"], fg=p["text"])
         self.title_lbl.pack(side="left")
         self.theme_btn = tk.Button(top, text=self._theme_btn_text(), command=self._toggle_theme,
-                                   relief="flat", padx=12, pady=4, cursor="hand2")
+                                   relief="flat", padx=12, pady=4,)
         self.theme_btn.pack(side="right")
 
         # Folder row.
@@ -136,7 +140,7 @@ class KeeperApp:
         self.folder_var = tk.StringVar()
         self.folder_entry = ttk.Entry(frow, textvariable=self.folder_var)
         self.folder_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        self.browse_btn = tk.Button(frow, text="Browse", command=self._browse, relief="flat", padx=14, pady=4, cursor="hand2")
+        self.browse_btn = tk.Button(frow, text="Browse", command=self._browse, relief="flat", padx=14, pady=4,)
         self.browse_btn.pack(side="right")
 
         # Action row: Start on the left, the 3-mode dropdown right beside it,
@@ -144,7 +148,7 @@ class KeeperApp:
         arow = row()
         arow.pack(fill="x", pady=(2, 12))
         self.start_btn = tk.Button(arow, text="Start", command=self._start,
-                                   relief="flat", padx=26, pady=8, cursor="hand2",
+                                   relief="flat", padx=26, pady=8,
                                    font=("TkDefaultFont", 11, "bold"))
         self.start_btn.pack(side="left")
         self.mode_var = tk.StringVar(value=MODE_CHOICES[0][0])
@@ -186,15 +190,22 @@ class KeeperApp:
         brow = row()
         brow.pack(fill="x")
         self.apply_btn = tk.Button(brow, text="Apply quarantine", command=self._apply,
-                                   relief="flat", padx=16, pady=6, state="disabled", cursor="hand2")
+                                   relief="flat", padx=16, pady=6, state="disabled",)
         self.apply_btn.pack(side="left")
         self.restore_btn = tk.Button(brow, text="Restore", command=self._restore,
-                                     relief="flat", padx=16, pady=6, cursor="hand2")
+                                     relief="flat", padx=16, pady=6,)
         self.restore_btn.pack(side="left", padx=(8, 0))
         self.clutter_lbl = tk.Label(brow, text="", bg=p["root"], fg=p["muted"])
         self.clutter_lbl.pack(side="right")
 
     # ------------------------------------------------------------------ theme
+    def _hover_btn(self, btn: tk.Button, *, rest: str, hover: str) -> None:
+        """Give a tk.Button a real hover state. Tk's activebackground only
+        fires on press, not hover, so we bind enter/leave ourselves."""
+        btn.configure(bg=rest)
+        btn.bind("<Enter>", lambda e, b=btn, c=hover: b.configure(bg=c))
+        btn.bind("<Leave>", lambda e, b=btn, c=rest: b.configure(bg=c))
+
     def _theme_btn_text(self) -> str:
         return "Light" if self.theme_name == "dark" else "Dark"
 
@@ -251,11 +262,15 @@ class KeeperApp:
         for btn in (self.theme_btn, self.browse_btn, self.start_btn,
                     self.apply_btn, self.restore_btn):
             btn.configure(bg=p["raise"], fg=p["text"],
-                          activebackground=p["accent"], activeforeground=p["accent_fg"])
+                          activebackground=p["press"], activeforeground=p["text"],
+                          relief="flat", bd=0, highlightthickness=0)
+            self._hover_btn(btn, rest=p["raise"], hover=p["hover"])
 
         # The Start button reads as the primary action.
         self.start_btn.configure(bg=p["accent"], fg=p["accent_fg"],
-                                 activebackground=p["accent"], activeforeground=p["accent_fg"])
+                                 activebackground=p["accent_press"],
+                                 activeforeground=p["accent_fg"])
+        self._hover_btn(self.start_btn, rest=p["accent"], hover=p["accent_hover"])
 
         self.tree.tag_configure("model", foreground=p["green"])
         self.tree.tag_configure("rule", foreground=p["yellow"])
