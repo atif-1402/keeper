@@ -2,9 +2,12 @@ name: release
 
 # Tag a version (git tag v0.1.1 && git push --tags) and CI builds a
 # standalone binary for every platform, then publishes a GitHub Release.
+# workflow_dispatch builds the same binaries as downloadable artifacts
+# WITHOUT cutting a release — used to test a build before tagging.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -71,9 +74,11 @@ jobs:
 
   release:
     needs: build
-    # Publish whatever platforms built, even if one leg failed — a partial
-    # release beats no release.
-    if: ${{ !cancelled() }}
+    # Publish only on a version tag. A manual (workflow_dispatch) build
+    # produces artifacts for testing but must not cut a release.
+    # On a tag, publish whatever platforms built even if one leg failed —
+    # a partial release beats no release.
+    if: ${{ startsWith(github.ref, 'refs/tags/') && !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
