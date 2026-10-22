@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import queue
+import sys
 import threading
 from pathlib import Path
 
@@ -209,42 +210,62 @@ class KeeperApp:
     def _theme_btn_text(self) -> str:
         return "Light" if self.theme_name == "dark" else "Dark"
 
+    def _use_ttk_theme(self, style: ttk.Style) -> bool:
+        """Pick the ttk theme. On Windows in light mode we use the native
+        theme (vista/winnative/xpnative) so the app adapts to the OS: Win10
+        renders boxy, Win11 rounded — the classic adaptive Windows look,
+        driven by the OS's own theming engine. Dark mode has no native
+        equivalent, and neither does Linux/macOS, so those fall back to
+        clam with our own flat colors. Returns True when the caller should
+        paint ttk widgets with the clam palette.
+        """
+        if sys.platform == "win32" and self.theme_name == "light":
+            for name in ("vista", "winnative", "xpnative"):
+                if name in style.theme_names():
+                    style.theme_use(name)
+                    return False
+        style.theme_use("clam")
+        return True
+
     def _apply_theme(self) -> None:
         p = self.palette
         self.root.configure(bg=p["root"])
         style = ttk.Style(self.root)
-        style.theme_use("clam")
+        using_clam = self._use_ttk_theme(style)
 
-        style.configure(".", background=p["root"], foreground=p["text"],
-                        fieldbackground=p["entry"], bordercolor=p["border"],
-                        lightcolor=p["raise"], darkcolor=p["surface"])
-        style.configure("TFrame", background=p["root"])
-        style.configure("TEntry", fieldbackground=p["entry"], foreground=p["text"],
-                        insertcolor=p["text"])
-        style.configure("TCombobox", fieldbackground=p["entry"], foreground=p["text"],
-                        background=p["raise"], arrowcolor=p["text"])
-        style.map("TCombobox", fieldbackground=[("readonly", p["entry"])],
-                  foreground=[("readonly", p["text"])])
+        if using_clam:
+            # Flat palette for dark mode and non-Windows platforms.
+            style.configure(".", background=p["root"], foreground=p["text"],
+                            fieldbackground=p["entry"], bordercolor=p["border"],
+                            lightcolor=p["raise"], darkcolor=p["surface"])
+            style.configure("TFrame", background=p["root"])
+            style.configure("TEntry", fieldbackground=p["entry"], foreground=p["text"],
+                            insertcolor=p["text"])
+            style.configure("TCombobox", fieldbackground=p["entry"], foreground=p["text"],
+                            background=p["raise"], arrowcolor=p["text"])
+            style.map("TCombobox", fieldbackground=[("readonly", p["entry"])],
+                      foreground=[("readonly", p["text"])])
 
-        # Buttons.
-        for name in ("TButton",):
-            style.configure(name, background=p["raise"], foreground=p["text"],
+            # Buttons.
+            style.configure("TButton", background=p["raise"], foreground=p["text"],
                             bordercolor=p["border"], focusthickness=1)
-            style.map(name, background=[("active", p["raise"])])
-        style.configure("Accent.TButton", background=p["accent"], foreground=p["accent_fg"])
+            style.map("TButton", background=[("active", p["raise"])])
+            style.configure("Accent.TButton", background=p["accent"], foreground=p["accent_fg"])
 
-        # Progressbar.
-        style.configure("TProgressbar", troughcolor=p["surface"],
-                        background=p["accent"], bordercolor=p["border"])
+            # Progressbar.
+            style.configure("TProgressbar", troughcolor=p["surface"],
+                            background=p["accent"], bordercolor=p["border"])
 
-        # Treeview.
-        style.configure("Treeview", background=p["row"], fieldbackground=p["row"],
-                        foreground=p["text"], bordercolor=p["border"],
-                        rowheight=28)
-        style.configure("Treeview.Heading", background=p["raise"],
-                        foreground=p["text"], relief="flat")
-        style.map("Treeview", background=[("selected", p["sel"])],
-                  foreground=[("selected", p["accent_fg"])])
+            # Treeview.
+            style.configure("Treeview", background=p["row"], fieldbackground=p["row"],
+                            foreground=p["text"], bordercolor=p["border"])
+            style.configure("Treeview.Heading", background=p["raise"],
+                            foreground=p["text"], relief="flat")
+            style.map("Treeview", background=[("selected", p["sel"])],
+                      foreground=[("selected", p["accent_fg"])])
+        # Row height is layout, not color — set it either way so the
+        # decided-by tags line up on every theme.
+        style.configure("Treeview", rowheight=28)
 
         # Re-color the tk widgets we made by hand. Plain tk frames keep the
         # background they were born with, so the tracked rows get repainted
