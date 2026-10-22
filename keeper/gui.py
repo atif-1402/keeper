@@ -22,6 +22,7 @@ import threading
 from pathlib import Path
 
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 
 from . import __version__
@@ -37,25 +38,29 @@ MODE_CHOICES = [
     ("Model only (require Ollama)", MODE_MODEL),
 ]
 
-# Dark and light, classic. Kept as flat dicts so the whole look lives here.
+# Dark and light, tuned for a clean modern flat look: one restrained accent,
+# real elevation (root -> surface -> card), and high-contrast text. Kept as
+# flat dicts so the whole look lives in one place.
 THEMES = {
     "dark": {
-        "root": "#1c1c1e", "surface": "#2a2a2c", "raise": "#3a3a3c",
-        "hover": "#48484a", "press": "#2a2a2c",
-        "text": "#f2f2f7", "muted": "#8e8e93", "accent": "#0a84ff",
-        "accent_hover": "#3395ff", "accent_press": "#0060df",
-        "accent_fg": "#ffffff", "green": "#30d158", "yellow": "#ffd60a",
-        "red": "#ff453a", "row": "#242426", "row_alt": "#2c2c2e",
-        "sel": "#0a84ff", "entry": "#1c1c1e", "border": "#3a3a3c",
+        "root": "#0f1116", "surface": "#171b22", "card": "#1c212b",
+        "raise": "#252b36", "hover": "#2f3742", "press": "#1a1f27",
+        "text": "#e8ebf2", "muted": "#8b94a6", "faint": "#5a6273",
+        "accent": "#4f8cff", "accent_hover": "#6ba0ff", "accent_press": "#3b74e6",
+        "accent_fg": "#ffffff", "green": "#3fb950", "yellow": "#d4a72c",
+        "red": "#f85149", "row": "#1c212b", "row_alt": "#20262f",
+        "sel": "#2d4373", "entry": "#12161d", "border": "#2a313c",
+        "focus": "#4f8cff", "danger": "#2a1518", "danger_fg": "#f85149",
     },
     "light": {
-        "root": "#f2f2f7", "surface": "#ffffff", "raise": "#e5e5ea",
-        "hover": "#d8d8dc", "press": "#c7c7cc",
-        "text": "#1c1c1e", "muted": "#6c6c70", "accent": "#007aff",
-        "accent_hover": "#3395ff", "accent_press": "#0060df",
-        "accent_fg": "#ffffff", "green": "#248a3d", "yellow": "#b8860b",
-        "red": "#d70015", "row": "#ffffff", "row_alt": "#f7f7fa",
-        "sel": "#007aff", "entry": "#ffffff", "border": "#d1d1d6",
+        "root": "#f6f7f9", "surface": "#eceef2", "card": "#ffffff",
+        "raise": "#e7eaef", "hover": "#dbe0e7", "press": "#ccd2db",
+        "text": "#12151c", "muted": "#626a79", "faint": "#99a1b0",
+        "accent": "#2f6fe4", "accent_hover": "#4a83ee", "accent_press": "#2559c4",
+        "accent_fg": "#ffffff", "green": "#1a7f37", "yellow": "#9a6700",
+        "red": "#cf222e", "row": "#ffffff", "row_alt": "#f4f6f9",
+        "sel": "#cfe0ff", "entry": "#ffffff", "border": "#e0e4ea",
+        "focus": "#2f6fe4", "danger": "#fdeced", "danger_fg": "#cf222e",
     },
 }
 
@@ -90,13 +95,14 @@ class KeeperApp:
         self.running = False
 
         root.title(f"Keeper {__version__}")
-        root.geometry("920x700")
-        root.minsize(720, 480)
+        root.geometry("940x720")
+        root.minsize(760, 560)
         # Force a real arrow cursor. On XWayland/Wayland a window that doesn't
         # ask for a cursor explicitly can be handed a blank one, which makes
         # the pointer seem to vanish over the app.
         root.configure(cursor="arrow")
 
+        self._setup_fonts()
         self._build_widgets()
         self._apply_theme()
 
@@ -113,69 +119,126 @@ class KeeperApp:
         self.root.after(100, self._poll)
 
     # ------------------------------------------------------------------ build
+    def _setup_fonts(self) -> None:
+        """A small, consistent type scale on the platform's default UI font.
+
+        Using the default family means it reads as native on every OS
+        (Segoe UI on Windows, SF/Helvetica on macOS, DejaVu on Linux)
+        instead of forcing a font some systems won't have.
+        """
+        base = tkfont.nametofont("TkDefaultFont")
+        family = base.cget("family")
+
+        def f(size: int, weight: str = "normal") -> tkfont.Font:
+            return tkfont.Font(family=family, size=size, weight=weight)
+
+        self.fonts = {
+            "title": f(22, "bold"),
+            "subtitle": f(11),
+            "label": f(9, "bold"),     # small caps-ish section labels
+            "body": f(11),
+            "button": f(11),
+            "button_big": f(12, "bold"),
+            "caption": f(10),
+            "tree": f(10),
+            "tree_head": f(10, "bold"),
+        }
+
     def _build_widgets(self) -> None:
         p = self.palette
         self.root.configure(bg=p["root"])
 
-        outer = ttk.Frame(self.root, padding=18)
+        # Tk frames/labels keep the bg they're born with, so track every one
+        # with its color role — a theme toggle repaints them from here.
+        self._themable: list[tuple[tk.Widget, str, str]] = []
+
+        def track(w: tk.Widget, bg: str = "root", fg: str = "text") -> tk.Widget:
+            # Frames only take bg; labels take bg+fg. Set fg only when the
+            # widget actually supports it (has a foreground option).
+            self._themable.append((w, bg, fg))
+            if "foreground" in w.keys():
+                w.configure(bg=p[bg], fg=p[fg])
+            else:
+                w.configure(bg=p[bg])
+            return w
+
+        def section(parent: tk.Widget, text: str) -> tk.Label:
+            # Small, quiet, uppercase section label — the modern look.
+            lbl = tk.Label(parent, text=text.upper(), font=self.fonts["label"],
+                           anchor="w", padx=1)
+            return track(lbl, "root", "faint")
+
+        outer = ttk.Frame(self.root, padding=(22, 18, 22, 16))
         outer.pack(fill="both", expand=True)
-        # Plain tk frames keep the bg they were born with — track them so a
-        # theme toggle can recolor them (ttk widgets follow the Style).
-        self._tk_rows: list[tk.Frame] = []
 
-        def row() -> tk.Frame:
-            f = tk.Frame(outer, bg=p["root"])
-            self._tk_rows.append(f)
-            return f
-
-        # Title bar + theme toggle.
-        top = row()
-        top.pack(fill="x", pady=(0, 14))
-        self.title_lbl = tk.Label(top, text="Keeper", font=("TkDefaultFont", 20, "bold"), bg=p["root"], fg=p["text"])
-        self.title_lbl.pack(side="left")
-        self.theme_btn = ttk.Button(top, text=self._theme_btn_text(), command=self._toggle_theme)
+        # ---- header bar: name + tagline left, theme toggle right ----
+        header = track(tk.Frame(outer))
+        header.pack(fill="x", pady=(0, 4))
+        title_box = track(tk.Frame(header))
+        title_box.pack(side="left")
+        self.title_lbl = tk.Label(title_box, text="Keeper",
+                                  font=self.fonts["title"], anchor="w")
+        track(self.title_lbl, "root", "text").pack(anchor="w")
+        tagline = tk.Label(title_box, text="Which copy do I keep?",
+                           font=self.fonts["subtitle"], anchor="w")
+        track(tagline, "root", "muted").pack(anchor="w")
+        self.theme_btn = ttk.Button(header, text=self._theme_btn_text(),
+                                    command=self._toggle_theme)
         self.theme_btn.pack(side="right")
 
-        # Folder row.
-        self.folder_lbl = tk.Label(outer, text="Folder", bg=p["root"], fg=p["muted"], anchor="w")
-        self.folder_lbl.pack(fill="x")
-        frow = row()
-        frow.pack(fill="x", pady=(2, 12))
+        # A hairline under the header.
+        track(tk.Frame(outer, height=1), "border", "border").pack(
+            fill="x", pady=(14, 18))
+
+        # ---- folder ----
+        section(outer, "Folder").pack(fill="x", pady=(0, 6))
+        frow = track(tk.Frame(outer))
+        frow.pack(fill="x", pady=(0, 18))
         self.folder_var = tk.StringVar()
-        self.folder_entry = ttk.Entry(frow, textvariable=self.folder_var)
-        self.folder_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self.folder_entry = ttk.Entry(frow, textvariable=self.folder_var,
+                                      font=self.fonts["body"])
+        self.folder_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
         self.browse_btn = ttk.Button(frow, text="Browse", command=self._browse)
         self.browse_btn.pack(side="right")
 
-        # Action row: Start on the left, the 3-mode dropdown right beside it,
-        # model name tucked at the far right for power users.
-        arow = row()
-        arow.pack(fill="x", pady=(2, 12))
+        # ---- run controls: Start (primary) + mode + model ----
+        section(outer, "Scan").pack(fill="x", pady=(0, 6))
+        arow = track(tk.Frame(outer))
+        arow.pack(fill="x", pady=(0, 18))
         self.start_btn = ttk.Button(arow, text="Start", command=self._start,
                                     style="Accent.TButton")
-        self.start_btn.pack(side="left", padx=(0, 10))
+        self.start_btn.pack(side="left")
         self.mode_var = tk.StringVar(value=MODE_CHOICES[0][0])
         self.mode_combo = ttk.Combobox(arow, textvariable=self.mode_var,
                                        values=[c[0] for c in MODE_CHOICES],
-                                       state="readonly", width=24)
-        self.mode_combo.pack(side="left", padx=(10, 0))
+                                       state="readonly", width=24,
+                                       font=self.fonts["body"])
+        self.mode_combo.pack(side="left", padx=(12, 0))
         self.model_var = tk.StringVar(value=self.cfg.get("model", DEFAULT_MODEL))
-        self.model_entry = ttk.Entry(arow, textvariable=self.model_var, width=16)
+        self.model_entry = ttk.Entry(arow, textvariable=self.model_var, width=16,
+                                     font=self.fonts["body"])
         self.model_entry.pack(side="right")
 
-        # Progress + status.
+        # ---- progress + status ----
         self.pbar = ttk.Progressbar(outer, mode="determinate", length=100)
-        self.pbar.pack(fill="x", pady=(6, 4))
-        self.status_lbl = tk.Label(outer, text="Pick a folder and press Start. Nothing moves until you Apply.",
-                                   bg=p["root"], fg=p["muted"], anchor="w")
-        self.status_lbl.pack(fill="x")
+        self.pbar.pack(fill="x", pady=(0, 8))
+        self.status_lbl = tk.Label(
+            outer, text="Pick a folder and press Start. Nothing moves until you Apply.",
+            font=self.fonts["caption"], anchor="w")
+        track(self.status_lbl, "root", "muted").pack(fill="x", pady=(0, 12))
 
-        # Results table.
+        # ---- results, in a raised card ----
+        self.card = track(tk.Frame(outer), "card", "card")
+        self.card.pack(fill="both", expand=True)
+        self.card.configure(highlightbackground=p["border"],
+                            highlightthickness=1, highlightcolor=p["border"])
         cols = ("cluster", "copies", "keep", "decided", "why", "losers")
         # A modest row count keeps the table's *minimum* size small so the
         # Apply/Restore buttons below stay on screen even in a short window;
-        # the table then grows to fill whatever space is available.
-        self.tree = ttk.Treeview(outer, columns=cols, show="headings", height=8)
+        # the table then grows to fill whatever space is available. The font
+        # comes from the Style, not the constructor.
+        self.tree = ttk.Treeview(self.card, columns=cols, show="headings",
+                                 height=8)
         for cid, heading, width, anchor in (
             ("cluster", "#", 40, "e"),
             ("copies", "Copies", 60, "e"),
@@ -184,24 +247,21 @@ class KeeperApp:
             ("why", "Why", 300, "w"),
             ("losers", "Losers", 160, "w"),
         ):
-            self.tree.heading(cid, text=heading)
+            self.tree.heading(cid, text=heading, anchor=anchor)
             self.tree.column(cid, width=width, anchor=anchor)
-        self.tree.pack(fill="both", expand=True, pady=(14, 8))
-        self.tree.tag_configure("keep", foreground=p["green"])
-        self.tree.tag_configure("model", foreground=p["green"])
-        self.tree.tag_configure("rule", foreground=p["yellow"])
-        self.tree.tag_configure("identical", foreground=p["accent"])
+        self.tree.pack(fill="both", expand=True, padx=1, pady=1)
 
-        # Bottom action buttons.
-        brow = row()
-        brow.pack(fill="x")
+        # ---- bottom actions ----
+        brow = track(tk.Frame(outer))
+        brow.pack(fill="x", pady=(16, 0))
         self.apply_btn = ttk.Button(brow, text="Apply quarantine", command=self._apply,
                                     state="disabled")
         self.apply_btn.pack(side="left")
         self.restore_btn = ttk.Button(brow, text="Restore", command=self._restore)
-        self.restore_btn.pack(side="left", padx=(8, 0))
-        self.clutter_lbl = tk.Label(brow, text="", bg=p["root"], fg=p["muted"])
-        self.clutter_lbl.pack(side="right")
+        self.restore_btn.pack(side="left", padx=(10, 0))
+        self.clutter_lbl = tk.Label(brow, text="", font=self.fonts["caption"],
+                                    anchor="e")
+        track(self.clutter_lbl, "root", "muted").pack(side="right")
 
     # ------------------------------------------------------------------ theme
     def _theme_btn_text(self) -> str:
@@ -237,65 +297,81 @@ class KeeperApp:
                             lightcolor=p["raise"], darkcolor=p["surface"])
             style.configure("TFrame", background=p["root"])
             style.configure("TEntry", fieldbackground=p["entry"], foreground=p["text"],
-                            insertcolor=p["text"])
+                            insertcolor=p["text"], bordercolor=p["border"], borderwidth=1,
+                            font=self.fonts["body"])
+            style.map("TEntry", bordercolor=[("focus", p["focus"])])
             style.configure("TCombobox", fieldbackground=p["entry"], foreground=p["text"],
-                            background=p["raise"], arrowcolor=p["text"])
-            style.map("TCombobox", fieldbackground=[("readonly", p["entry"])],
-                      foreground=[("readonly", p["text"])])
+                            background=p["raise"], arrowcolor=p["muted"],
+                            bordercolor=p["border"], borderwidth=1,
+                            postoffset=0, font=self.fonts["body"])
+            style.map("TCombobox",
+                      fieldbackground=[("readonly", p["entry"])],
+                      foreground=[("readonly", p["text"])],
+                      bordercolor=[("focus", p["focus"])])
 
             # Buttons. clam draws hover from the "active" state and the press
             # from "pressed" — give each a distinct shade so feedback reads.
+            # Secondary/tertiary actions (Browse, theme, Restore, Apply).
             style.configure("TButton", background=p["raise"], foreground=p["text"],
-                            bordercolor=p["border"], focusthickness=1, padding=(14, 6))
+                            bordercolor=p["border"], focusthickness=1, borderwidth=1,
+                            padding=(14, 7), font=self.fonts["button"])
             style.map("TButton",
-                      background=[("active", p["hover"]), ("pressed", p["press"])],
-                      foreground=[("active", p["text"])])
+                      background=[("active", p["hover"]), ("pressed", p["press"]),
+                                  ("disabled", p["surface"])],
+                      foreground=[("active", p["text"]), ("disabled", p["faint"])],
+                      bordercolor=[("focus", p["focus"]),
+                                   ("disabled", p["border"])])
+            # Primary action (Start) — the one accent button.
             style.configure("Accent.TButton", background=p["accent"],
-                            foreground=p["accent_fg"], padding=(22, 8),
-                            font=("TkDefaultFont", 11, "bold"))
+                            foreground=p["accent_fg"], padding=(26, 9),
+                            font=self.fonts["button_big"], borderwidth=0)
             style.map("Accent.TButton",
                       background=[("active", p["accent_hover"]),
-                                  ("pressed", p["accent_press"])],
-                      foreground=[("active", p["accent_fg"])])
-            # A disabled button reads as muted rather than looking clickable.
-            style.configure("TButton", background=p["raise"])
-            style.map("TButton", background=[("disabled", p["surface"])],
-                      foreground=[("disabled", p["muted"])])
+                                  ("pressed", p["accent_press"]),
+                                  ("disabled", p["surface"])],
+                      foreground=[("active", p["accent_fg"]),
+                                  ("disabled", p["faint"])])
 
-            # Progressbar.
+            # Progressbar — slim, accent fill on a subtle trough.
             style.configure("TProgressbar", troughcolor=p["surface"],
-                            background=p["accent"], bordercolor=p["border"])
+                            background=p["accent"], bordercolor=p["surface"],
+                            lightcolor=p["accent"], darkcolor=p["accent"],
+                            borderwidth=0, thickness=6)
 
-            # Treeview.
-            style.configure("Treeview", background=p["row"], fieldbackground=p["row"],
-                            foreground=p["text"], bordercolor=p["border"])
-            style.configure("Treeview.Heading", background=p["raise"],
-                            foreground=p["text"], relief="flat")
-            style.map("Treeview", background=[("selected", p["sel"])],
-                      foreground=[("selected", p["accent_fg"])])
+            # Treeview — sits in the card; use card bg with subtle striping.
+            style.configure("Treeview", background=p["card"],
+                            fieldbackground=p["card"], foreground=p["text"],
+                            bordercolor=p["border"], borderwidth=0,
+                            font=self.fonts["tree"])
+            style.configure("Treeview.Heading", background=p["surface"],
+                            foreground=p["muted"], relief="flat", anchor="w",
+                            padding=(8, 8), font=self.fonts["tree_head"])
+            style.map("Treeview",
+                      background=[("selected", p["sel"])],
+                      foreground=[("selected", p["text"])])
+            style.map("Treeview.Heading", background=[("active", p["surface"])])
         # Row height is layout, not color — set it either way so the
         # decided-by tags line up on every theme.
-        style.configure("Treeview", rowheight=28)
+        style.configure("Treeview", rowheight=30)
 
-        # Re-color the tk widgets we made by hand. Plain tk frames keep the
-        # background they were born with, so the tracked rows get repainted
-        # here too — otherwise a toggle leaves dark bars in the light theme.
-        for f in getattr(self, "_tk_rows", []):
-            f.configure(bg=p["root"])
-        for widget, bg, fg in (
-            (self.title_lbl, p["root"], p["text"]),
-            (self.folder_lbl, p["root"], p["muted"]),
-            (self.status_lbl, p["root"], p["muted"]),
-            (self.clutter_lbl, p["root"], p["muted"]),
-        ):
-            widget.configure(bg=bg, fg=fg)
+        # Repaint every tracked tk widget from its color role. Plain tk
+        # frames/labels keep the bg they were born with, so a theme toggle
+        # would otherwise leave stale bars. Frames have no foreground.
+        for widget, bg_role, fg_role in getattr(self, "_themable", []):
+            if "foreground" in widget.keys():
+                widget.configure(bg=p[bg_role], fg=p[fg_role])
+            else:
+                widget.configure(bg=p[bg_role])
+        # The results card also carries a border highlight.
+        self.card.configure(highlightbackground=p["border"],
+                            highlightcolor=p["border"])
 
-        # Buttons are ttk — they take hover/press from the Style map above,
-        # not from per-widget recoloring.
-
+        # Row striping + decided-by colors for the results table.
         self.tree.tag_configure("model", foreground=p["green"])
         self.tree.tag_configure("rule", foreground=p["yellow"])
         self.tree.tag_configure("identical", foreground=p["accent"])
+        self.tree.tag_configure("odd", background=p["card"])
+        self.tree.tag_configure("even", background=p["row_alt"])
 
     def _toggle_theme(self) -> None:
         self.theme_name = "light" if self.theme_name == "dark" else "dark"
@@ -400,7 +476,9 @@ class KeeperApp:
             losers = ", ".join(loser_names[:3])
             if len(loser_names) > 3:
                 losers += f" +{len(loser_names) - 3} more"
-            self.tree.insert("", "end", tags=(dec.method,),
+            # decided-by color tag + alternating row background for striping.
+            stripe = "even" if i % 2 == 0 else "odd"
+            self.tree.insert("", "end", tags=(dec.method, stripe),
                              values=(i, len(gd.files), keep, dec.method,
                                      dec.reason, losers))
 
