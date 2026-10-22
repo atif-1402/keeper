@@ -40,13 +40,28 @@ jobs:
             --collect-submodules PIL \
             packaging/entry.py
 
+      - name: Build GUI binary
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            sudo apt-get update && sudo apt-get install -y python3-tk
+          fi
+          pyinstaller --onefile --windowed --name keeper-gui --paths . \
+            --collect-submodules pypdf --collect-submodules docx \
+            --collect-submodules PIL \
+            packaging/entry_gui.py
+
       - name: Name the asset
         shell: bash
         run: |
+          base="${{ matrix.asset }}"
+          guibase="${base/keeper-/keeper-gui-}"
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            cp dist/keeper.exe "dist/${{ matrix.asset }}"
+            cp dist/keeper.exe "dist/${base}"
+            cp dist/keeper-gui.exe "dist/${guibase}"
           else
-            cp dist/keeper "dist/${{ matrix.asset }}"
+            cp dist/keeper "dist/${base}"
+            cp dist/keeper-gui "dist/${guibase}"
           fi
 
       - uses: actions/upload-artifact@v4
