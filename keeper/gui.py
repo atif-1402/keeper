@@ -90,8 +90,12 @@ class KeeperApp:
         self.running = False
 
         root.title(f"Keeper {__version__}")
-        root.geometry("860x620")
-        root.minsize(720, 520)
+        root.geometry("920x700")
+        root.minsize(720, 480)
+        # Force a real arrow cursor. On XWayland/Wayland a window that doesn't
+        # ask for a cursor explicitly can be handed a blank one, which makes
+        # the pointer seem to vanish over the app.
+        root.configure(cursor="arrow")
 
         self._build_widgets()
         self._apply_theme()
@@ -129,8 +133,7 @@ class KeeperApp:
         top.pack(fill="x", pady=(0, 14))
         self.title_lbl = tk.Label(top, text="Keeper", font=("TkDefaultFont", 20, "bold"), bg=p["root"], fg=p["text"])
         self.title_lbl.pack(side="left")
-        self.theme_btn = tk.Button(top, text=self._theme_btn_text(), command=self._toggle_theme,
-                                   relief="flat", padx=12, pady=4,)
+        self.theme_btn = ttk.Button(top, text=self._theme_btn_text(), command=self._toggle_theme)
         self.theme_btn.pack(side="right")
 
         # Folder row.
@@ -141,17 +144,16 @@ class KeeperApp:
         self.folder_var = tk.StringVar()
         self.folder_entry = ttk.Entry(frow, textvariable=self.folder_var)
         self.folder_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        self.browse_btn = tk.Button(frow, text="Browse", command=self._browse, relief="flat", padx=14, pady=4,)
+        self.browse_btn = ttk.Button(frow, text="Browse", command=self._browse)
         self.browse_btn.pack(side="right")
 
         # Action row: Start on the left, the 3-mode dropdown right beside it,
         # model name tucked at the far right for power users.
         arow = row()
         arow.pack(fill="x", pady=(2, 12))
-        self.start_btn = tk.Button(arow, text="Start", command=self._start,
-                                   relief="flat", padx=26, pady=8,
-                                   font=("TkDefaultFont", 11, "bold"))
-        self.start_btn.pack(side="left")
+        self.start_btn = ttk.Button(arow, text="Start", command=self._start,
+                                    style="Accent.TButton")
+        self.start_btn.pack(side="left", padx=(0, 10))
         self.mode_var = tk.StringVar(value=MODE_CHOICES[0][0])
         self.mode_combo = ttk.Combobox(arow, textvariable=self.mode_var,
                                        values=[c[0] for c in MODE_CHOICES],
@@ -170,7 +172,10 @@ class KeeperApp:
 
         # Results table.
         cols = ("cluster", "copies", "keep", "decided", "why", "losers")
-        self.tree = ttk.Treeview(outer, columns=cols, show="headings", height=12)
+        # A modest row count keeps the table's *minimum* size small so the
+        # Apply/Restore buttons below stay on screen even in a short window;
+        # the table then grows to fill whatever space is available.
+        self.tree = ttk.Treeview(outer, columns=cols, show="headings", height=8)
         for cid, heading, width, anchor in (
             ("cluster", "#", 40, "e"),
             ("copies", "Copies", 60, "e"),
@@ -190,23 +195,15 @@ class KeeperApp:
         # Bottom action buttons.
         brow = row()
         brow.pack(fill="x")
-        self.apply_btn = tk.Button(brow, text="Apply quarantine", command=self._apply,
-                                   relief="flat", padx=16, pady=6, state="disabled",)
+        self.apply_btn = ttk.Button(brow, text="Apply quarantine", command=self._apply,
+                                    state="disabled")
         self.apply_btn.pack(side="left")
-        self.restore_btn = tk.Button(brow, text="Restore", command=self._restore,
-                                     relief="flat", padx=16, pady=6,)
+        self.restore_btn = ttk.Button(brow, text="Restore", command=self._restore)
         self.restore_btn.pack(side="left", padx=(8, 0))
         self.clutter_lbl = tk.Label(brow, text="", bg=p["root"], fg=p["muted"])
         self.clutter_lbl.pack(side="right")
 
     # ------------------------------------------------------------------ theme
-    def _hover_btn(self, btn: tk.Button, *, rest: str, hover: str) -> None:
-        """Give a tk.Button a real hover state. Tk's activebackground only
-        fires on press, not hover, so we bind enter/leave ourselves."""
-        btn.configure(bg=rest)
-        btn.bind("<Enter>", lambda e, b=btn, c=hover: b.configure(bg=c))
-        btn.bind("<Leave>", lambda e, b=btn, c=rest: b.configure(bg=c))
-
     def _theme_btn_text(self) -> str:
         return "Light" if self.theme_name == "dark" else "Dark"
 
@@ -246,11 +243,24 @@ class KeeperApp:
             style.map("TCombobox", fieldbackground=[("readonly", p["entry"])],
                       foreground=[("readonly", p["text"])])
 
-            # Buttons.
+            # Buttons. clam draws hover from the "active" state and the press
+            # from "pressed" — give each a distinct shade so feedback reads.
             style.configure("TButton", background=p["raise"], foreground=p["text"],
-                            bordercolor=p["border"], focusthickness=1)
-            style.map("TButton", background=[("active", p["raise"])])
-            style.configure("Accent.TButton", background=p["accent"], foreground=p["accent_fg"])
+                            bordercolor=p["border"], focusthickness=1, padding=(14, 6))
+            style.map("TButton",
+                      background=[("active", p["hover"]), ("pressed", p["press"])],
+                      foreground=[("active", p["text"])])
+            style.configure("Accent.TButton", background=p["accent"],
+                            foreground=p["accent_fg"], padding=(22, 8),
+                            font=("TkDefaultFont", 11, "bold"))
+            style.map("Accent.TButton",
+                      background=[("active", p["accent_hover"]),
+                                  ("pressed", p["accent_press"])],
+                      foreground=[("active", p["accent_fg"])])
+            # A disabled button reads as muted rather than looking clickable.
+            style.configure("TButton", background=p["raise"])
+            style.map("TButton", background=[("disabled", p["surface"])],
+                      foreground=[("disabled", p["muted"])])
 
             # Progressbar.
             style.configure("TProgressbar", troughcolor=p["surface"],
@@ -280,18 +290,8 @@ class KeeperApp:
         ):
             widget.configure(bg=bg, fg=fg)
 
-        for btn in (self.theme_btn, self.browse_btn, self.start_btn,
-                    self.apply_btn, self.restore_btn):
-            btn.configure(bg=p["raise"], fg=p["text"],
-                          activebackground=p["press"], activeforeground=p["text"],
-                          relief="flat", bd=0, highlightthickness=0)
-            self._hover_btn(btn, rest=p["raise"], hover=p["hover"])
-
-        # The Start button reads as the primary action.
-        self.start_btn.configure(bg=p["accent"], fg=p["accent_fg"],
-                                 activebackground=p["accent_press"],
-                                 activeforeground=p["accent_fg"])
-        self._hover_btn(self.start_btn, rest=p["accent"], hover=p["accent_hover"])
+        # Buttons are ttk — they take hover/press from the Style map above,
+        # not from per-widget recoloring.
 
         self.tree.tag_configure("model", foreground=p["green"])
         self.tree.tag_configure("rule", foreground=p["yellow"])
