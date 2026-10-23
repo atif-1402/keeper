@@ -1,6 +1,6 @@
 [project]
 name = "keeper-ai"
-version = "0.1.5"
+version = "0.1.6"
 description = "Keeper — finds version-clone files in a folder and tells you which one to keep. 100% offline, powered by an open-weight model."
 readme = "README.md"
 license = { file = "LICENSE" }

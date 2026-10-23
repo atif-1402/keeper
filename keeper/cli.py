@@ -6,12 +6,28 @@
     keeper <folder> --model X     use a different Ollama model
     keeper <folder> --report F    also write a Markdown report
     keeper <folder> --json        machine-readable verdicts on stdout
+
+Targeting (scope what is even considered):
+
+    --ext pdf,jpg,docx            only these extensions
+    --min-size 10k                skip files below this size
+    --include/--exclude GLOB      path globs, both repeatable
+    --max-hash-mb N               byte-identical pass cap (0 = no limit)
+
+Deciding (keep control of the verdict):
+
+    --only 1,3,5 / --skip 2       act on a subset of clusters
+    --interactive                 walk each cluster and override the keeper
+    --fail-on-clutter             exit 3 when clutter is found
+    --quiet                       no progress or summary output
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 import sys
 import threading
 import time
@@ -22,14 +38,20 @@ from rich.live import Live
 from rich.spinner import Spinner
 
 from . import __version__
-from .decide import DEFAULT_MODEL, decide, model_available, would_use_model
+from .decide import (DEFAULT_MODEL, Decision, decide, model_available,
+                     would_use_model)
 from .extract import extract_text
 from .group import cluster
 from .quarantine import QDIR, GroupDecision, apply_quarantine, restore
 from .report import fmt_bytes, markdown_report, render_decisions
-from .scan import scan
+from .scan import DEFAULT_MAX_HASH_MB, scan
 
 console = Console()
+
+# Exit codes: 0 fine, 1 runtime error, 2 usage error, 3 clutter found
+# (the last only when --fail-on-clutter is set, so scripts can tell
+# "there was work to do" apart from "something went wrong").
+EXIT_CLUTTER = 3
 
 
 def _fmt_duration(seconds: float) -> str:
@@ -54,10 +76,11 @@ class _Phase:
     """
 
     def __init__(self, text: str, *, show_time: bool = True,
-                 stream=None) -> None:
+                 stream=None, quiet: bool = False) -> None:
         self.text = text
         self.show_time = show_time
         self.stream = stream
+        self.quiet = quiet
         self.total: int | None = None
         self.done = 0
         self.started = time.monotonic()
@@ -81,16 +104,22 @@ class _Phase:
 
     def set(self, text: str, *, total: int | None = None, done: int = 0) -> None:
         self.text, self.total, self.done = text, total, done
+        if self.quiet:
+            return
         if self._live is None:  # piped: announce each phase once
             print(f"  {self._label()} ...", file=self.stream, flush=True)
 
     def bump(self, n: int = 1) -> None:
         self.done += n
+        if self.quiet:
+            return
         if self._live is None and self.total and self.done < self.total \
                 and self.done % 25 == 0:
             print(f"  {self._label()} ...", file=self.stream, flush=True)
 
     def __enter__(self) -> "_Phase":
+        if self.quiet:
+            return self
         term = console.is_terminal or (self.stream is not None and
                                        getattr(self.stream, "isatty", lambda: False)())
         if term:
@@ -124,6 +153,57 @@ class _Phase:
             self._live.stop()
 
 
+_SIZE_UNITS = {
+    "": 1, "b": 1,
+    "k": 1024, "kb": 1024,
+    "m": 1024 ** 2, "mb": 1024 ** 2,
+    "g": 1024 ** 3, "gb": 1024 ** 3,
+}
+
+
+def parse_size(text: str) -> int:
+    """``10k`` -> 10240, ``2.5M`` -> 2621440, ``500`` -> 500 bytes."""
+    cleaned = text.strip().lower().replace("_", "").replace(" ", "")
+    match = re.fullmatch(r"(\d+(?:\.\d+)?)\s*([a-z]*)", cleaned)
+    if not match or match.group(2) not in _SIZE_UNITS:
+        raise argparse.ArgumentTypeError(
+            f"bad size {text!r} — try bytes (500), or 10k, 2M, 1G"
+        )
+    return int(float(match.group(1)) * _SIZE_UNITS[match.group(2)])
+
+
+def parse_exts(text: str) -> set[str]:
+    """``pdf,.JPG,docx`` -> ``{'.pdf', '.jpg', '.docx'}``."""
+    parts = [p.strip().lower() for p in text.split(",") if p.strip()]
+    if not parts:
+        raise argparse.ArgumentTypeError("empty --ext list")
+    return {p if p.startswith(".") else f".{p}" for p in parts}
+
+
+def parse_clusters(text: str) -> set[int]:
+    """``1,3,5-7`` -> ``{1, 3, 5, 6, 7}``. Ranges are inclusive."""
+    out: set[int] = set()
+    for part in text.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            if "-" in part:
+                first, _, last = part.partition("-")
+                out.update(range(int(first), int(last) + 1))
+            else:
+                out.add(int(part))
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(
+                f"bad cluster list {text!r} — try 1,3,5 or 2-4"
+            ) from exc
+    if not out or any(n < 1 for n in out):
+        raise argparse.ArgumentTypeError(
+            f"bad cluster list {text!r} — cluster numbers start at 1"
+        )
+    return out
+
+
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="keeper",
@@ -150,18 +230,149 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
                              "stdout (progress goes to stderr)")
     parser.add_argument("--report", metavar="FILE",
                         help="also write a Markdown report to FILE")
+    parser.add_argument("--quiet", "-q", action="store_true",
+                        help="print nothing but errors (and the JSON document "
+                             "when --json is set)")
+
+    # Targeting: what gets considered at all.
+    target = parser.add_argument_group(
+        "targeting", "narrow what Keeper looks at before it hashes or reads")
+    target.add_argument("--ext", type=parse_exts, metavar="LIST",
+                        help="only consider these extensions, comma-separated "
+                             "(e.g. pdf,jpg,docx)")
+    target.add_argument("--min-size", type=parse_size, default=0, metavar="SIZE",
+                        help="skip files smaller than SIZE (e.g. 10k, 2M, 1G)")
+    target.add_argument("--include", action="append", default=[], metavar="GLOB",
+                        help="only scan paths matching GLOB; repeatable, "
+                             "matched against the path and the file name")
+    target.add_argument("--exclude", action="append", default=[], metavar="GLOB",
+                        help="skip paths matching GLOB; repeatable")
+    target.add_argument("--max-hash-mb", type=int, default=DEFAULT_MAX_HASH_MB,
+                        metavar="N",
+                        help="hash files up to N MB when hunting byte-identical "
+                             f"copies (default: {DEFAULT_MAX_HASH_MB}; 0 = no limit)")
+
+    # Deciding: who gets the final say.
+    decide_group = parser.add_argument_group(
+        "deciding", "keep control over which verdicts are acted on")
+    decide_group.add_argument("--only", type=parse_clusters, metavar="LIST",
+                              help="act only on these cluster numbers "
+                                   "(e.g. 1,3,5 or 2-4)")
+    decide_group.add_argument("--skip", type=parse_clusters, metavar="LIST",
+                              help="act on every cluster except these numbers")
+    decide_group.add_argument("--interactive", action="store_true",
+                              help="review each cluster in turn and override "
+                                   "the keeper (needs a terminal)")
+    decide_group.add_argument("--fail-on-clutter", action="store_true",
+                              help=f"exit with code {EXIT_CLUTTER} when clutter "
+                                   "is found, 0 when the folder is tidy")
+
     parser.add_argument("--version", action="version", version=f"keeper {__version__}")
     return parser.parse_args(argv)
 
 
+def _interactive_review(
+    numbered: list[tuple[int, GroupDecision]],
+) -> list[tuple[int, GroupDecision]]:
+    """Walk each cluster, letting the user confirm, re-pick, or drop it.
+
+    Stopping early keeps every verdict reached so far and leaves the rest
+    alone — an unreviewed cluster is never acted on. Nothing moves until
+    the normal ``--apply`` step, so this is still a dry run while you review.
+    """
+    accepted: list[tuple[int, GroupDecision]] = []
+    total = len(numbered)
+    for position, (number, gd) in enumerate(numbered, start=1):
+        dec = gd.decision
+        print(f"\nCluster {number} of {total} — {len(gd.files)} copies")
+        for index, fact in enumerate(gd.files, start=1):
+            role = "keep" if fact.path == dec.keep.path else "loser"
+            print(f"  {index}. [{role}] {fact.rel}  ({fmt_bytes(fact.size)})")
+        print(f"  why: {dec.reason}  [{dec.method}, confidence {dec.confidence:.2f}]")
+
+        while True:
+            try:
+                raw = input("  [Enter] accept · [number] keep that copy · "
+                            "[s] skip · [q] stop > ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                raw = "q"
+            if raw in ("", "y", "yes"):
+                accepted.append((number, gd))
+                break
+            if raw in ("s", "skip"):
+                print(f"  cluster {number} skipped — it will be left alone")
+                break
+            if raw in ("q", "quit", "exit"):
+                print(f"\n  Review stopped — {total - position} cluster(s) after "
+                      f"this one will not be touched.")
+                return accepted
+            try:
+                choice = int(raw)
+            except ValueError:
+                print("    type a copy number, s, or q — or press Enter to accept")
+                continue
+            if not 1 <= choice <= len(gd.files):
+                print(f"    pick a number from 1 to {len(gd.files)}")
+                continue
+            pick = gd.files[choice - 1]
+            if pick.path == dec.keep.path:
+                print("    that copy is already the keeper — press Enter to accept")
+                continue
+            gd = GroupDecision(files=gd.files, decision=Decision(
+                keep=pick,
+                reason=f"you chose copy {choice}",
+                confidence=1.0,
+                method="manual",
+            ))
+            print(f"  keeper is now {pick.rel}")
+            accepted.append((number, gd))
+            break
+    return accepted
+
+
 def main(argv: list[str] | None = None) -> int:
+    """Run the CLI.
+
+    A reader closing the pipe early (`keeper ~/Downloads --json | head`)
+    must never dump a traceback — Keeper reports success and shuts up,
+    the way every other command-line tool does.
+    """
+    try:
+        return _main(argv)
+    except BrokenPipeError:
+        try:  # keep the interpreter's shutdown flush from complaining too
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, sys.stdout.fileno())
+        except Exception:  # stdout may be a capture object with no fd
+            pass
+        return 0
+
+
+def _main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     as_json = args.json
+    quiet = args.quiet
     # In JSON mode every progress line goes to stderr; stdout carries only
     # the final JSON document (parseable even when piped into jq).
+    # --quiet silences both: only errors (and the JSON document) are printed.
     def say(msg: str = "") -> None:
+        if quiet:
+            return
         print(msg, file=sys.stderr if as_json else sys.stdout, flush=True)
     phase_stream = sys.stderr if as_json else None
+
+    if args.interactive and (as_json or quiet):
+        print("keeper: --interactive needs plain terminal output — drop "
+              "--json or --quiet", file=sys.stderr)
+        return 2
+    if args.interactive and not sys.stdin.isatty():
+        print("keeper: --interactive needs a terminal (stdin is not one)",
+              file=sys.stderr)
+        return 2
+    if args.max_hash_mb < 0:
+        print("keeper: --max-hash-mb cannot be negative (0 means no limit)",
+              file=sys.stderr)
+        return 2
 
     if not args.path:
         print("keeper: give me a folder to scan (e.g. `keeper ~/Downloads`)", file=sys.stderr)
@@ -194,11 +405,32 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     show_time = not args.no_eta
-    say(f"Scanning {root} ...")
+    filters = []
+    if args.ext:
+        filters.append("ext " + ",".join(sorted(args.ext)))
+    if args.min_size:
+        filters.append(">= " + fmt_bytes(args.min_size))
+    if args.include:
+        filters.append("include " + ",".join(args.include))
+    if args.exclude:
+        filters.append("exclude " + ",".join(args.exclude))
+    if args.max_hash_mb != DEFAULT_MAX_HASH_MB:
+        filters.append("hash cap "
+                       + ("none" if args.max_hash_mb == 0
+                          else f"{args.max_hash_mb} MB"))
+    say(f"Scanning {root}" + (f"  [{' · '.join(filters)}]" if filters else "")
+        + " ...")
 
-    with _Phase("hashing files", show_time=show_time,
+    with _Phase("hashing files", show_time=show_time, quiet=quiet,
                 stream=phase_stream) as phase:
-        facts = scan(root)
+        facts = scan(
+            root,
+            max_hash_bytes=args.max_hash_mb * 1024 * 1024,
+            exts=args.ext,
+            min_size=args.min_size,
+            include=args.include,
+            exclude=args.exclude,
+        )
         phase.set("extracting text (txt/md/csv/pdf/docx)",
                   total=len(facts), done=0)
         for fact in facts:
@@ -227,7 +459,8 @@ def main(argv: list[str] | None = None) -> int:
     asked = 0
     if clusters:
         label = (f"asking {args.model}" if worthy else "deciding from metadata")
-        with _Phase(label, show_time=show_time, stream=phase_stream) as phase:
+        with _Phase(label, show_time=show_time, quiet=quiet,
+                    stream=phase_stream) as phase:
             phase.total = worthy or None
             for group in clusters:
                 needs_ask = worthy and would_use_model(group)
@@ -249,6 +482,35 @@ def main(argv: list[str] | None = None) -> int:
                     phase.bump()
         say()
 
+    # Keep the cluster numbers the user saw in an earlier run, so --only 3
+    # still reports cluster 3 rather than renumbering whatever it lands on.
+    numbered: list[tuple[int, GroupDecision]] = list(
+        enumerate(decisions, start=1)
+    )
+
+    if args.only or args.skip:
+        wanted = set(args.only or set()) | set(args.skip or set())
+        known = {n for n, _ in numbered}
+        missing = sorted(wanted - known)
+        if missing:
+            print(f"keeper: cluster(s) {', '.join(map(str, missing))} do not "
+                  f"exist — this folder has {len(numbered)}",
+                  file=sys.stderr)
+            return 2
+        skip = args.skip or set()
+        numbered = [
+            (n, gd) for n, gd in numbered
+            if (not args.only or n in args.only) and n not in skip
+        ]
+        say(f"  Selected {len(numbered)} of {len(known)} cluster(s).\n")
+
+    if args.interactive:
+        numbered = _interactive_review(numbered)
+        say()
+
+    decisions = [gd for _, gd in numbered]
+    numbers = [n for n, _ in numbered]
+
     clutter = sum(f.size for g in decisions for f in g.losers)
     loser_total = sum(len(g.losers) for g in decisions)
 
@@ -269,7 +531,7 @@ def main(argv: list[str] | None = None) -> int:
             "applied": False,
             "decisions": [
                 {
-                    "cluster": i,
+                    "cluster": number,
                     "copies": len(g.files),
                     "keep": g.decision.keep.rel,
                     "reason": g.decision.reason,
@@ -279,14 +541,19 @@ def main(argv: list[str] | None = None) -> int:
                     "losers": [f.rel for f in g.losers],
                     "loser_bytes": sum(f.size for f in g.losers),
                 }
-                for i, g in enumerate(decisions, start=1)
+                for number, g in numbered
             ],
         }
-    else:
-        render_decisions(decisions)
+    elif not quiet:
+        if clusters and not decisions:
+            say("Nothing selected — --only/--skip excluded every cluster.")
+        else:
+            render_decisions(decisions, numbers=numbers)
 
     if args.report:
-        Path(args.report).write_text(markdown_report(decisions, str(root)), encoding="utf-8")
+        Path(args.report).write_text(
+            markdown_report(decisions, str(root), numbers=numbers),
+            encoding="utf-8")
         say(f"Report written to {args.report}")
 
     if not decisions:
@@ -312,7 +579,7 @@ def main(argv: list[str] | None = None) -> int:
     if as_json:
         print(json.dumps(payload, indent=2))
 
-    return 0
+    return EXIT_CLUTTER if (args.fail_on_clutter and loser_total) else 0
 
 
 if __name__ == "__main__":

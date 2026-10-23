@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 from rich import box
@@ -14,12 +15,14 @@ METHOD_BADGE = {
     "model": "[bold green]● model[/]",
     "rule": "[bold yellow]◐ rule[/]",
     "identical": "[bold blue]◆ identical[/]",
+    "manual": "[bold magenta]◆ you[/]",
 }
 
 METHOD_LABEL = {
     "identical": "byte-identical",
     "model": "model",
     "rule": "fallback rule",
+    "manual": "your pick",
 }
 
 
@@ -45,8 +48,13 @@ KEEPER_BOX = box.Box("""\
 """)
 
 
-def render_decisions(groups: list[GroupDecision]) -> None:
+def render_decisions(groups: list[GroupDecision], *,
+                     numbers: Sequence[int] | None = None) -> None:
     """Print the verdict table: colored, one row per cluster.
+
+    ``numbers`` overrides the displayed cluster numbers — used when the user
+    filtered with ``--only``/``--skip`` so cluster 7 still reads as 7 instead
+    of being renumbered to whatever slot it landed in.
 
     Column widths are proportional to the terminal, and every text column
     *wraps* — nothing is ever cut off with an ellipsis, no matter how small
@@ -60,6 +68,7 @@ def render_decisions(groups: list[GroupDecision]) -> None:
     if not groups:
         console.print("No duplicate clusters found. That folder is already tidy.")
         return
+    labels = list(numbers) if numbers is not None else list(range(1, len(groups) + 1))
 
     # Width budget: # / Copies / Decided are fixed (~19 cols), overhead for
     # padding and borders ~24; the remaining pool splits KEEP 40% / Why 32% /
@@ -86,7 +95,7 @@ def render_decisions(groups: list[GroupDecision]) -> None:
     table.add_column("Why", style="dim", width=why_w, overflow="fold")
     table.add_column("Losers", style="red", width=losers_w, overflow="fold")
 
-    for i, gd in enumerate(groups, start=1):
+    for label, gd in zip(labels, groups):
         dec = gd.decision
         loser_names = [Path(f.rel).name for f in gd.losers]
         # As many loser names as comfortably fit; the full list lives in the
@@ -101,7 +110,7 @@ def render_decisions(groups: list[GroupDecision]) -> None:
             if len(cell) <= losers_w:
                 loser_cell = cell
         table.add_row(
-            str(i),
+            str(label),
             str(len(gd.files)),
             Path(dec.keep.rel).name,
             METHOD_BADGE.get(dec.method, dec.method),
@@ -111,8 +120,10 @@ def render_decisions(groups: list[GroupDecision]) -> None:
     console.print(table)
 
 
-def markdown_report(groups: list[GroupDecision], root: str) -> str:
+def markdown_report(groups: list[GroupDecision], root: str, *,
+                    numbers: Sequence[int] | None = None) -> str:
     clutter = sum(f.size for g in groups for f in g.losers)
+    labels = list(numbers) if numbers is not None else list(range(1, len(groups) + 1))
     lines = [
         "# Keeper report",
         "",
@@ -127,17 +138,17 @@ def markdown_report(groups: list[GroupDecision], root: str) -> str:
         return "\n".join(lines) + "\n"
 
     lines += ["| # | Copies | Keeper | Decided by | Why |", "|---|--------|--------|------------|-----|"]
-    for i, gd in enumerate(groups, start=1):
+    for label, gd in zip(labels, groups):
         dec = gd.decision
-        label = METHOD_LABEL.get(dec.method, dec.method)
+        label_text = METHOD_LABEL.get(dec.method, dec.method)
         reason = dec.reason.replace("|", "\\|")
         lines.append(
-            f"| {i} | {len(gd.files)} | `{gd.decision.keep.rel}` | {label} | {reason} |"
+            f"| {label} | {len(gd.files)} | `{gd.decision.keep.rel}` | {label_text} | {reason} |"
         )
 
     lines += ["", "## Losers", ""]
-    for i, gd in enumerate(groups, start=1):
-        lines.append(f"**Cluster {i}** — keeper: `{gd.decision.keep.rel}`")
+    for label, gd in zip(labels, groups):
+        lines.append(f"**Cluster {label}** — keeper: `{gd.decision.keep.rel}`")
         lines.append("")
         for fact in gd.losers:
             lines.append(f"- `{fact.rel}`")

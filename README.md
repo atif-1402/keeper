@@ -136,10 +136,40 @@ Ollama is not running — falling back to the rule engine.
 | `keeper <folder> --json` | Machine-readable verdicts on stdout (one JSON document — pipe it into `jq`) |
 | `keeper <folder> --no-eta` | Hide the elapsed/remaining time in the spinner |
 | `keeper <folder> --report out.md` | Also write a Markdown report |
+| `keeper <folder> --quiet` | Print nothing but errors — for cron and CI |
 
 The dry-run summary ends with the payoff number: `8 loser(s) would be quarantined · 37.3 KB of duplicate clutter`. Every run tells you how much junk you're sitting on.
 
 While it works, the spinner shows a live clock and — once it has measured your machine's speed — a countdown: `asking gemma3:1b — index.html [3/9] · about 40s left`. A slow box honestly shows minutes; a fast one shows seconds. If a verdict needs a second look, the countdown grows by one instead of lying. No fixed timings, just measured throughput.
+
+### Targeting
+
+A Downloads folder is a mixed bag, and sometimes you only care about part of it. These narrow what is even considered — applied during the walk, so nothing you excluded is ever hashed or read.
+
+| Command | What it does |
+|---|---|
+| `--ext pdf,jpg,docx` | Only these extensions |
+| `--min-size 10k` | Skip files smaller than this (`500`, `10k`, `2M`, `1G`) |
+| `--include 'rental*'` | Only paths matching the glob; repeatable |
+| `--exclude 'reports/*'` | Skip paths matching the glob; repeatable |
+| `--max-hash-mb 512` | How big a file may be for the byte-identical pass; `0` means no limit |
+
+The last one matters. Keeper used to stop hashing at 64 MB, which quietly hid the usual Downloads offenders — a re-downloaded installer, two copies of the same video, a duplicated archive. The default is now 512 MB.
+
+### Deciding
+
+The model suggests; you keep the final say.
+
+| Command | What it does |
+|---|---|
+| `--only 1,3,5` | Act only on those cluster numbers (ranges work: `2-4`) |
+| `--skip 2` | Act on every cluster except those |
+| `--interactive` | Walk each cluster in turn and override the keeper yourself |
+| `--fail-on-clutter` | Exit `3` when clutter is found, `0` when the folder is tidy |
+
+Cluster numbers stay stable across runs on an unchanged folder, so `--only 7` still means cluster 7 — the table and the report keep the original number instead of renumbering whatever slot it lands in. And nothing moves without `--apply`, including after a review.
+
+Exit codes: `0` fine · `1` something went wrong · `2` bad usage · `3` clutter found (only with `--fail-on-clutter`, so a script can tell "there was work to do" apart from "it broke").
 
 ## Why open innovation matters here
 
