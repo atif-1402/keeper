@@ -66,4 +66,4 @@ else
   say "tip: get Ollama (https://ollama.com) + 'ollama pull gemma3:1b' for AI verdicts;"
   say "     without it keeper still works with its rule engine"
 fi
-say "try:  keeper ~/Downloads"
+say "try:  keeper ~/Documents"

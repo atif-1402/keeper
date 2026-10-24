@@ -106,7 +106,7 @@ python -m pip install "git+https://github.com/atif-1402/keeper"
 ```bash
 uv tool install "git+https://github.com/atif-1402/keeper"   # uv users
 git clone https://github.com/atif-1402/keeper && cd keeper
-uv sync && uv run keeper ~/Downloads                        # from source
+uv sync && uv run keeper ~/Documents                        # from source
 ```
 
 ### The model
@@ -144,7 +144,7 @@ While it works, the spinner shows a live clock and — once it has measured your
 
 ### Targeting
 
-A Downloads folder is a mixed bag, and sometimes you only care about part of it. These narrow what is even considered — applied during the walk, so nothing you excluded is ever hashed or read.
+Any folder is a mixed bag — a project tree, a media dump, a decade of Documents — and sometimes you only care about part of it. These narrow what is even considered — applied during the walk, so nothing you excluded is ever hashed or read.
 
 | Command | What it does |
 |---|---|
@@ -154,7 +154,7 @@ A Downloads folder is a mixed bag, and sometimes you only care about part of it.
 | `--exclude 'reports/*'` | Skip paths matching the glob; repeatable |
 | `--max-hash-mb 512` | How big a file may be for the byte-identical pass; `0` means no limit |
 
-The last one matters. Keeper used to stop hashing at 64 MB, which quietly hid the usual Downloads offenders — a re-downloaded installer, two copies of the same video, a duplicated archive. The default is now 512 MB.
+The last one matters. Keeper used to stop hashing at 64 MB, which quietly hid the big offenders — a re-downloaded installer, two copies of the same video, a duplicated archive. The default is now 512 MB.
 
 ### Deciding
 

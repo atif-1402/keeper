@@ -333,7 +333,7 @@ def _interactive_review(
 def main(argv: list[str] | None = None) -> int:
     """Run the CLI.
 
-    A reader closing the pipe early (`keeper ~/Downloads --json | head`)
+    A reader closing the pipe early (`keeper ~/Documents --json | head`)
     must never dump a traceback — Keeper reports success and shuts up,
     the way every other command-line tool does.
     """
@@ -375,7 +375,7 @@ def _main(argv: list[str] | None = None) -> int:
         return 2
 
     if not args.path:
-        print("keeper: give me a folder to scan (e.g. `keeper ~/Downloads`)", file=sys.stderr)
+        print("keeper: give me a folder to scan (e.g. `keeper ~/Documents`)", file=sys.stderr)
         return 2
 
     root = Path(args.path).expanduser()

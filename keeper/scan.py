@@ -25,11 +25,11 @@ SKIP_DIRS = {
 MAX_TEXT_CHARS = 200_000
 
 # How big a file may be before we give up hashing it for the byte-identical
-# pass. Old default was 64 MB, which silently hid the usual Downloads
-# offenders — a re-downloaded 100 MB installer, two copies of the same
-# video. Hashing reads sequentially and costs well under a second per
-# 500 MB on any drive made this decade, so the cap only exists to stop a
-# folder of multi-gigabyte ISOs from stalling the scan.
+# pass. Old default was 64 MB, which silently hid the big offenders — a
+# re-downloaded 100 MB installer, two copies of the same video. Hashing reads
+# sequentially and costs well under a second per 500 MB on any drive made this
+# decade, so the cap only exists to stop a folder of multi-gigabyte ISOs from
+# stalling the scan.
 DEFAULT_MAX_HASH_MB = 512
 
 
